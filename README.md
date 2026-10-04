@@ -39,8 +39,10 @@ Dabber is built from source on your Mac. There is no prebuilt download.
   not needed.
 - **Disk space:** about 1.5 GB for the Command Line Tools and up to about 1 GB for the build folders inside the
   repository. While recording, Dabber keeps uncompressed audio in a temporary folder: about 1.4 GB per hour for Mac
-  audio and about 0.7 GB per hour per microphone, plus up to about 500 MB per hour for slides. A recording does not start with less than 2 GB free, and the menu
-  warns when less than about 20 minutes of recording space is left. Finished files are much smaller (compressed AAC).
+  audio and about 0.7 GB per hour per microphone, plus up to about 500 MB per hour for slides. A recording does not
+  start with less than 2 GB free, and the menu warns when less than about 20 minutes of recording space is left.
+  Finished files are much smaller (compressed AAC). The speech model takes about 470 MB. While a recording is
+  transcribed, temporary files take about 0.5 GB per hour of stereo audio.
 
 ### Permissions the app asks for
 
@@ -222,7 +224,10 @@ about 2-5 minutes and needs the internet. The model is stored in
 model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
 ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
 loading the model again in the background. After three failed loads, not counting network errors, Dabber stops trying
-until it is restarted. Recordings shorter than one second are not transcribed.
+until it is restarted. Recordings shorter than one second are not transcribed. If the transcription of a recording was
+interrupted twice (a crash, a forced quit or a power loss), Dabber does not try a third time: the recording is
+delivered without a transcript, and the menu says "Transcript failed: not attempted: transcription did not finish
+twice".
 
 For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
 
