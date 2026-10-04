@@ -230,7 +230,7 @@ git commit -m "feat: group timed words into transcript lines with speakers, txt 
 - Create: `Sources/DabberCore/Transcribe/Subtitles.swift`
 - Test: `Tests/DabberCoreTests/SubtitlesTests.swift`
 
-Rules: one cue shows every line active in its time span, one line per speaker, prefixed with the speaker. Adjacent spans with the same text become one cue. A span shorter than `minMillis` (300 ms) is folded into the previous cue; an empty gap shorter than `minMillis` extends the previous cue. A cue still shorter than `minMillis` is stretched to `minMillis` or up to the next cue.
+Rules: one cue shows every line active in its time span, one line per speaker, prefixed with the speaker. Adjacent spans with the same text become one cue. A span shorter than `minMillis` (300 ms) is folded into the previous cue; an empty gap shorter than `minMillis` extends the previous cue. A cue still shorter than `minMillis` that is directly followed by a longer span is taken over by that span (it keeps its start, gets the new text). Any other cue still shorter than `minMillis` is stretched to `minMillis` or up to the next cue.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -326,6 +326,8 @@ public enum Subtitles {
                 if touchesLast, b - a < minMillis { out[out.count - 1].endMillis = b }
             } else if touchesLast, out.last?.text == text || b - a < minMillis {
                 out[out.count - 1].endMillis = b
+            } else if touchesLast, let last = out.last, last.endMillis - last.startMillis < minMillis {
+                out[out.count - 1] = SubtitleCue(startMillis: last.startMillis, endMillis: b, text: text)
             } else {
                 out.append(SubtitleCue(startMillis: a, endMillis: b, text: text))
             }
@@ -406,6 +408,26 @@ Add to the `FinalizerTests` extension that holds the slideshow tests:
         ])
         #expect(try await chapterList(out) == ["0.000 Start", "1.500 Mark 1"])
     }
+
+    @Test func aCueInTheLastMomentOfTheAudioIsDropped() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let audio = dir.appendingPathComponent("mix.m4a")
+        let writer = try AACWriter(url: audio, channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        let out = dir.appendingPathComponent("mix.mp4")
+        try SlideshowWriter.write(
+            audio: audio, slides: [try slide(dir, atSeconds: 0, screen())], chapters: [],
+            subtitles: [SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+                        SubtitleCue(startMillis: 2_950, endMillis: 3_250, text: "Я: Да")],
+            title: nil, to: out)
+        #expect(try await subtitleSamples(out) == ["0.000+1.000 ", "1.000+1.000 Я: Раз", "2.000+1.000 "])
+        try SlideshowWriter.write(
+            audio: audio, slides: [try slide(dir, atSeconds: 0, screen())], chapters: [],
+            subtitles: [SubtitleCue(startMillis: 2_950, endMillis: 3_250, text: "Я: Да")], title: nil, to: out)
+        #expect(try await AVURLAsset(url: out).loadTracks(withMediaType: .subtitle).isEmpty)
+    }
 ```
 
 Why these samples: the 0–0.5 s gap is long enough for an empty sample. The 100 ms gap between 1.0 and 1.1 s is shorter than `Subtitles.minMillis`, so the lane stretches the previous sample over it: «Я: Привет» runs 0.5–1.1 s. The final empty sample covers 2.0–3.0 s because the audio is 3 s long.
@@ -433,16 +455,27 @@ enum SubtitleTrack {
     /// A disabled (off by default) Russian tx3g subtitle track. Gaps get empty samples so a cue never outlives its
     /// speech; a gap shorter than Subtitles.minMillis is given to the previous sample instead.
     static func lane(_ cues: [SubtitleCue], end: CMTime, writer: AVAssetWriter) throws -> WriterFeed.Lane? {
-        guard !cues.isEmpty else { return nil }
+        let spans = spans(cues, endMillis: Int(end.seconds * 1000))
+        guard spans.contains(where: { !$0.text.isEmpty }) else { return nil }
         let format = try ChapterWriter.textFormat(mediaType: kCMMediaType_Subtitle, subType: kCMSubtitleFormatType_3GText)
+        var samples = try spans.map { span in
+            try ChapterWriter.sample(
+                span.text, start: CMTime(value: CMTimeValue(span.start), timescale: 1000),
+                duration: CMTime(value: CMTimeValue(span.end - span.start), timescale: 1000), format: format)
+        }
         let input = AVAssetWriterInput(mediaType: .subtitle, outputSettings: nil, sourceFormatHint: format)
         input.languageCode = "rus"
         input.extendedLanguageTag = "ru"
         input.marksOutputTrackAsEnabled = false
         writer.add(input)
-        let endMillis = Int(end.seconds * 1000)
+        return (input, { samples.isEmpty ? nil : samples.removeFirst() })
+    }
+
+    /// Contiguous samples from 0 to the end of the audio: cues plus empty gaps, none shorter than Subtitles.minMillis.
+    static func spans(_ cues: [SubtitleCue], endMillis: Int) -> [(start: Int, end: Int, text: String)] {
         var spans: [(start: Int, end: Int, text: String)] = []
-        for cue in cues where cue.startMillis < endMillis {
+        // A cue starting in the last minMillis of the audio would be cut below minMillis; it is dropped.
+        for cue in cues where cue.startMillis <= endMillis - Subtitles.minMillis {
             let t = spans.last?.end ?? 0
             if cue.startMillis - t >= Subtitles.minMillis {
                 spans.append((t, cue.startMillis, ""))
@@ -452,12 +485,7 @@ enum SubtitleTrack {
             spans.append((spans.last?.end ?? cue.startMillis, min(cue.endMillis, endMillis), cue.text))
         }
         if let t = spans.last?.end, endMillis - t >= Subtitles.minMillis { spans.append((t, endMillis, "")) }
-        var samples = try spans.map { span in
-            try ChapterWriter.sample(
-                span.text, start: CMTime(value: CMTimeValue(span.start), timescale: 1000),
-                duration: CMTime(value: CMTimeValue(span.end - span.start), timescale: 1000), format: format)
-        }
-        return (input, { samples.isEmpty ? nil : samples.removeFirst() })
+        return spans
     }
 }
 ```
