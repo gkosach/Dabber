@@ -915,6 +915,17 @@ extension FinalizerTests {
         #expect(!FileManager.default.fileExists(atPath: marker(quiet).path))
     }
 
+    @Test func aNegativeMarkerCountsAsNoUnfinishedAttempt() throws {
+        let dir = try makeSession()
+        try "-5".write(to: marker(dir), atomically: true, encoding: .utf8)
+        let seen = Asked()
+        try Finalizer.run(dir, speech: { url in
+            seen.names.append(try String(contentsOf: url.deletingLastPathComponent().appendingPathComponent(Finalizer.transcribingMarker), encoding: .utf8))
+            return []
+        })
+        #expect(seen.names == ["1", "1"])
+    }
+
     @Test func theTranscribingMarkerCountsTheAttemptAndIsGoneAfterSuccessAndFailure() throws {
         struct Boom: Error {}
         let outcomes: [SpeechToText] = [{ _ in [] }, { _ in throw Boom() }]

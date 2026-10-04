@@ -24,7 +24,7 @@ public enum Finalizer {
     public static func run(_ dir: URL, speech: SpeechToText? = nil) throws -> FinalizeReport {
         var manifest = try SessionManifest.load(from: dir)
         let marker = dir.appendingPathComponent(transcribingMarker)
-        let unfinished = (try? String(contentsOf: marker, encoding: .utf8)).flatMap { Int($0) } ?? 0
+        let unfinished = max(0, (try? String(contentsOf: marker, encoding: .utf8)).flatMap { Int($0) } ?? 0)
         try? FileManager.default.removeItem(at: marker)
         var tracks: [Track] = []
         var rendered: [String] = []
