@@ -225,10 +225,10 @@ If Transcribe is on, the model (about 470 MB) is downloaded and compiled in the 
 first time this takes about 2-5 minutes and needs the internet. The model is stored in
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`. While the model loads, a line under the
 Transcribe switch shows what is happening: "Downloading speech model… 37%" while the files download, then "Preparing
-speech model…" while they are compiled for the Mac (the first time this can take several minutes). The line goes away
-once the model is ready. If a load fails, the line says "Speech model failed: …" with the reason, and after the last
-allowed attempt it adds "Dabber will try again at the next launch." A recording that finishes before the
-model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
+speech model…" while they are compiled for the Mac (the first time this can take several minutes). Once the model is
+ready, the line says "Speech model ready". If a load fails, the line says "Speech model failed: …" with the reason,
+and after the last allowed attempt it adds "Dabber will try again at the next launch." A recording that finishes
+before the model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
 ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
 loading the model again in the background. After three failed loads Dabber stops trying until it is restarted.
 Network problems do not count toward the three: no connection, a stalled or rate-limited download, a server error.

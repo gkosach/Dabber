@@ -934,7 +934,7 @@ private func slidesModel(
     #expect(m.warning == nil)
 }
 
-@MainActor @Test func theSpeechModelLineShowsOnlyWhileTranscribeIsOnAndTheModelIsNotReady() {
+@MainActor @Test func theSpeechModelLineShowsOnlyWhileTranscribeIsOn() {
     nonisolated(unsafe) var status = SpeechModelStatus.idle
     let m = RecorderModel(
         engine: FakeEngine(), catalog: FakeCatalog(devices: [airpods]), enabledIDs: ["computer"], persist: { _ in },
@@ -944,7 +944,7 @@ private func slidesModel(
         (.downloading(nil), "Downloading speech model…"),
         (.downloading(0.379), "Downloading speech model… 37%"),
         (.preparing, "Preparing speech model…"),
-        (.ready, nil),
+        (.ready, "Speech model ready"),
         (.failed("broken model", gaveUp: false), "Speech model failed: broken model"),
         (.failed("The Internet connection appears to be offline.", gaveUp: true),
          "Speech model failed: The Internet connection appears to be offline. Dabber will try again at the next launch."),

@@ -235,12 +235,13 @@ public final class RecorderModel {
         persistTranscribe(transcribeOn)
     }
 
-    /// The line under the Transcribe switch. Nothing once the model is ready, so the menu stays calm and the line
-    /// going away is the sign that recordings will get a transcript.
+    /// The line under the Transcribe switch. "Ready" is shown too: an empty spot would look the same as a load
+    /// that has not started.
     public var speechStatusText: String? {
         guard transcribeOn else { return nil }
         switch speechStatus {
-        case .idle, .ready: return nil
+        case .idle: return nil
+        case .ready: return "Speech model ready"
         case .downloading(nil): return "Downloading speech model…"
         case .downloading(let done?): return "Downloading speech model… \(Int(done * 100))%"
         case .preparing: return "Preparing speech model…"
