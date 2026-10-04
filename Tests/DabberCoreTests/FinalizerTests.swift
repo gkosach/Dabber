@@ -849,9 +849,23 @@ extension FinalizerTests {
         struct Boom: Error, CustomStringConvertible { var description: String { "no model" } }
         let dir = try makeSession()
         let report = try Finalizer.run(dir, speech: { _ in throw Boom() })
-        #expect(report.transcriptError == "mic - A: no model; computer audio: no model")
+        #expect(report.transcriptError == "no model")
         #expect(try AVAudioFile(forReading: dir.appendingPathComponent("mix.m4a")).length == 144_000)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+    }
+
+    @Test func tracksFailingDifferentlyAreNamedAndTheTextIsCut() throws {
+        struct Boom: Error, CustomStringConvertible { let description: String }
+        let dir = try makeSession()
+        let report = try Finalizer.run(dir, speech: { url in
+            throw Boom(description: url.lastPathComponent.hasPrefix("mic") ? "mic broke" : "mac broke")
+        })
+        #expect(report.transcriptError == "mic - A: mic broke; computer audio: mac broke")
+        let long = try makeSession()
+        let cut = try Finalizer.run(long, speech: { url in
+            throw Boom(description: url.lastPathComponent + String(repeating: "x", count: 150))
+        })
+        #expect(cut.transcriptError?.count == 200)
     }
 
     @Test func oneFailingTrackKeepsTheTextOfTheOthers() throws {

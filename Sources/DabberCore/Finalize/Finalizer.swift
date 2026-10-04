@@ -88,8 +88,8 @@ public enum Finalizer {
                 do {
                     try String(unfinished + 1).write(to: marker, atomically: true, encoding: .utf8)
                     defer { try? FileManager.default.removeItem(at: marker) }
-                    let (lines, failed) = transcribe(tracks, dir: dir, speech: speech)
-                    if !failed.isEmpty { transcriptError = failed.joined(separator: "; ") }
+                    let (lines, failure) = transcribe(tracks, dir: dir, speech: speech)
+                    transcriptError = failure
                     if !lines.isEmpty {
                         try Transcript.text(lines, marks: manifest.marks)
                             .write(to: dir.appendingPathComponent(Transcript.textFile), atomically: true, encoding: .utf8)
@@ -179,18 +179,24 @@ public enum Finalizer {
         return String(text.prefix(200))
     }
 
-    /// A failed track does not cost the others their text; it is named in `failed` with its error.
-    private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) -> (lines: [TranscriptLine], failed: [String]) {
+    /// A failed track does not cost the others their text. If every track failed the same way (the model is not
+    /// ready, say), `failure` is that error once; otherwise it names each failed track.
+    private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) -> (lines: [TranscriptLine], failure: String?) {
+        let heard = tracks.filter { !$0.reader.placements.isEmpty }
         var lines: [[TranscriptLine]] = []
-        var failed: [String] = []
-        for track in tracks where !track.reader.placements.isEmpty {
+        var failed: [(track: String, error: String)] = []
+        for track in heard {
             do {
                 lines.append(Transcript.lines(try speech(dir.appendingPathComponent(track.base + ".m4a")), speaker: track.speaker))
             } catch {
-                failed.append("\(track.base): \(brief(error))")
+                failed.append((track.base, brief(error)))
             }
         }
-        return (Transcript.merge(lines), failed)
+        guard let first = failed.first else { return (Transcript.merge(lines), nil) }
+        if failed.count == heard.count, failed.allSatisfy({ $0.error == first.error }) {
+            return (Transcript.merge(lines), first.error)
+        }
+        return (Transcript.merge(lines), String(failed.map { "\($0.track): \($0.error)" }.joined(separator: "; ").prefix(200)))
     }
 
     public static func finish(_ dir: URL, speech: SpeechToText? = nil) throws -> URL {
