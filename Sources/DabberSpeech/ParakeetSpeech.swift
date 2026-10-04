@@ -94,7 +94,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
     }
 
     /// Being offline is transient, so it does not use up the retries.
-    private static func isNetwork(_ error: Error) -> Bool {
+    static func isNetwork(_ error: Error) -> Bool {
         error is URLError || (error as NSError).domain == NSURLErrorDomain
             || ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.domain == NSURLErrorDomain
     }

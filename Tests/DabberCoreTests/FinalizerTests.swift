@@ -937,4 +937,82 @@ extension FinalizerTests {
         #expect(report.subtitlesError == nil)
         #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).count == 1)
     }
+
+    @Test func aRunThatCannotTranscribeRemovesTheTranscriptOfAnEarlierRun() throws {
+        struct Boom: Error {}
+        let dir = try makeSession()
+        let cafs = try FileManager.default.contentsOfDirectory(atPath: dir.path).filter { $0.hasSuffix(".caf") }
+        let keep = FileManager.default.temporaryDirectory.appendingPathComponent("cafs-\(UUID().uuidString)")
+        try FileManager.default.copyItem(at: dir, to: keep)
+        try Finalizer.run(dir, speech: { _ in [SpokenWord(startMillis: 500, endMillis: 1_500, text: "Привет")] })
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+        for name in cafs { try FileManager.default.copyItem(at: keep.appendingPathComponent(name), to: dir.appendingPathComponent(name)) }
+        let report = try Finalizer.run(dir, speech: { _ in throw Boom() })
+        #expect(report.totalFrames == 144_000)
+        #expect(report.transcriptError != nil)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.srtFile).path))
+    }
+
+    @Test func whenTheVideoFailsWithoutSubtitlesTooOnlyTheSlidesErrorIsReported() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        try Data([1, 2, 3]).write(to: dir.appendingPathComponent("broken.heic"))
+        var manifest = SessionManifest(appVersion: "t", startedAt: startedAt, sessionStartNanos: 1)
+        manifest.frames = [FrameRecord(offsetNanos: 0, file: "broken.heic")]
+        let result = Finalizer.slideshow(manifest, dir: dir, chapters: [], subtitles: [
+            SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+        ])
+        #expect(result.slides == "broken.heic: could not decode frame")
+        #expect(result.subtitles == nil)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
+    }
+
+    @Test func briefPrefersTheReadableDescriptionAndCutsItShort() {
+        struct Described: LocalizedError { var errorDescription: String? { "described" } }
+        struct Plain: Error, CustomStringConvertible { var description: String { "plain" } }
+        struct Long: Error, CustomStringConvertible { var description: String { String(repeating: "x", count: 300) } }
+        #expect(Finalizer.brief(Described()) == "described")
+        #expect(Finalizer.brief(NSError(domain: "d", code: 1, userInfo: [NSLocalizedDescriptionKey: "from NSError"])) == "from NSError")
+        #expect(Finalizer.brief(Plain()) == "plain")
+        #expect(Finalizer.brief(Long()) == String(repeating: "x", count: 200))
+    }
+
+    @Test func launchRecoveryTranscribesTheSessionsItRecovers() throws {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("work-\(UUID().uuidString)")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("out-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        try FileManager.default.moveItem(at: try makeSession(), to: work.appendingPathComponent("crashed"))
+        let failure = Delivery.recover(
+            Finalizer.sessionFolders(root: work), work: work, output: out,
+            speech: { _ in [SpokenWord(startMillis: 500, endMillis: 1_500, text: "Привет")] })
+        #expect(failure == nil)
+        let name = SessionNaming.sessionName(startedAt, title: "")
+        #expect(FileManager.default.fileExists(atPath: out.appendingPathComponent(name).appendingPathComponent(Transcript.textFile).path))
+    }
+
+    @Test func aTrackThatNeverConnectedIsNotTranscribed() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fin-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let s: UInt64 = 10_000_000_000
+        var m = SessionManifest(appVersion: "t", startedAt: Date(), sessionStartNanos: s)
+        m.sources = [
+            SourceManifest(kind: .computer, uid: nil, name: "Computer audio", file: "computer audio.m4a", channels: 2, segments: [
+                SegmentRecord(file: "computer audio.seg000.caf", startNanos: s, frames: 96_000, endNanos: s + 2_000_000_000, sourceRate: 48_000, sourceChannels: 2, reason: "start"),
+            ], restarts: [], overruns: 0),
+            SourceManifest(kind: .mic, uid: "ap", name: "AirPods", file: "mic - AirPods.m4a", channels: 1, segments: [], restarts: [], overruns: 0),
+        ]
+        try m.save(to: dir)
+        try writeCAF(dir.appendingPathComponent("computer audio.seg000.caf"), samples: sine(frames: 96_000, channels: 2, amplitude: 0.25), channels: 2)
+        let asked = Asked()
+        try Finalizer.run(dir, speech: { url in
+            asked.names.append(url.lastPathComponent)
+            return []
+        })
+        #expect(asked.names == ["computer audio.m4a"])
+    }
 }

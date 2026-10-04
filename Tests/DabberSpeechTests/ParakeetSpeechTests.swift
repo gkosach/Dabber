@@ -84,4 +84,13 @@ struct ParakeetSpeechTests {
         let rms = (0..<n).reduce(Float(0)) { $0 + pcm.floatChannelData![0][$1] * pcm.floatChannelData![0][$1] } / Float(n)
         #expect(rms.squareRoot() > 0.1)
     }
+
+    @Test func onlyNetworkFailuresCountAsNetwork() {
+        let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        #expect(ParakeetSpeech.isNetwork(URLError(.timedOut)))
+        #expect(ParakeetSpeech.isNetwork(offline))
+        #expect(ParakeetSpeech.isNetwork(NSError(domain: "FluidAudio", code: 1, userInfo: [NSUnderlyingErrorKey: offline])))
+        #expect(!ParakeetSpeech.isNetwork(NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError)))
+        #expect(!ParakeetSpeech.isNetwork(ParakeetSpeech.SpeechError.notReady(nil)))
+    }
 }
