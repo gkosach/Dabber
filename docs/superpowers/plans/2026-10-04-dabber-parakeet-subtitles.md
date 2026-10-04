@@ -995,6 +995,35 @@ git commit -m "feat: the app and headless mode transcribe finished recordings wi
 
 ---
 
+### Task 6b: Drop lines the model is unsure about
+
+Found while running Task 6 on a real meeting: on a mic track that is almost silent (the user listened for 24 minutes), Parakeet invents short English phrases from near-silence («I've got to put this in the middle of the day»), which would show up as «Я» subtitles. Measured with FluidAudio's word confidences, grouping words into lines like `Transcript.lines` (pause ≥ 1 s or 84 characters):
+
+- silent mic track of «дальше в edenex»: both invented lines have mean confidence 0.50–0.55, dropped at a 0.7 threshold;
+- the 24-minute «дальше в edenex» mix: 228 lines, 1 dropped at 0.7 («but then», also junk);
+- the 11-minute «Daily» mix: 90 lines, none dropped.
+
+**Files:**
+- Modify: `Sources/DabberCore/Transcribe/Transcript.swift` (`SpokenWord`, `Transcript.lines`)
+- Modify: `Sources/DabberSpeech/ParakeetSpeech.swift` (`words` passes the confidence)
+- Test: `Tests/DabberCoreTests/TranscriptTests.swift`, `Tests/DabberSpeechTests/ParakeetSpeechTests.swift`
+
+Rules:
+- `SpokenWord` gets `public let confidence: Double`, with init parameter `confidence: Double = 1` last, so existing callers and tests compile unchanged.
+- `Transcript.lines` drops a finished line whose mean word confidence is below `Transcript.minConfidence = 0.7`. The grouping into lines is unchanged; only which lines are emitted changes.
+- `ParakeetSpeech.words` passes FluidAudio's word confidence (from `buildWordTimings`; check the field name in `.build/checkouts/FluidAudio/Sources/FluidAudio/ASR/Parakeet/AsrTypes.swift`).
+
+Tests:
+- `TranscriptTests.unsureLinesAreDropped`: words «I've»(0.5) «got»(0.5), a pause of 2 s, «Да»(0.95) «хорошо»(0.9) → only «Да хорошо».
+- `TranscriptTests.oneUnsureWordDoesNotDropASureLine`: «Как»(1) «дела»(0.3) «сегодня»(1) → kept (mean 0.77).
+- `ParakeetSpeechTests`: the confidence of a merged word reaches `SpokenWord.confidence` (whatever FluidAudio's merge rule is: assert it equals what `buildWordTimings` reports).
+
+Manual check: `nice -n 10 .build/release/Dabber --transcribe "<edenex folder>/mic - Semyon’s AirPods.m4a"` prints at most the lines the user really said, no English inventions.
+
+Commit: `feat: transcript lines the model is unsure about are dropped`
+
+---
+
 ### Task 7: Docs and credits
 
 **Files:**
