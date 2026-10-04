@@ -46,7 +46,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
                 let asr = try await Self.makeManager()
                 self.lock.withLock { self.manager = asr; self.loadError = nil; self.loading = false }
             } catch {
-                self.lock.withLock { self.loadError = error.localizedDescription; self.failures += 1; self.loading = false }
+                self.lock.withLock { self.loadError = error.localizedDescription; if !Self.isNetwork(error) { self.failures += 1 }; self.loading = false }
             }
         }
     }
@@ -58,7 +58,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
             let asr = try blocking { try await Self.makeManager() }
             lock.withLock { manager = asr; loadError = nil }
         } catch {
-            lock.withLock { loadError = error.localizedDescription; failures += 1 }
+            lock.withLock { loadError = error.localizedDescription; if !Self.isNetwork(error) { failures += 1 } }
             throw error
         }
     }
@@ -74,7 +74,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
         while Date() < deadline {
             let (ready, busy) = lock.withLock { (manager != nil, loading) }
             if ready || !busy { return }
-            try? await Task.sleep(for: .milliseconds(500))
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
         }
     }
 
@@ -91,6 +91,12 @@ public final class ParakeetSpeech: @unchecked Sendable {
             let result = try await asr.transcribe(mono ?? url, decoderState: &state)
             return Self.words(result.tokenTimings ?? [])
         }
+    }
+
+    /// Being offline is transient, so it does not use up the retries.
+    private static func isNetwork(_ error: Error) -> Bool {
+        error is URLError || (error as NSError).domain == NSURLErrorDomain
+            || ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.domain == NSURLErrorDomain
     }
 
     private static func makeManager() async throws -> AsrManager {
