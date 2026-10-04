@@ -136,4 +136,26 @@ struct ParakeetSpeechTests {
             #expect(!ParakeetSpeech.isNetwork(permanent), "\(permanent)")
         }
     }
+
+    private final class Calls: @unchecked Sendable {
+        var count = 0
+    }
+
+    private struct Boom: Error {}
+
+    /// Calls `prepare()` the way finalize does, many times, and waits for each background load to end.
+    private func loads(failingWith error: any Error) async -> Int {
+        let calls = Calls()
+        let speech = ParakeetSpeech(load: { calls.count += 1; throw error })
+        for _ in 0..<15 {
+            speech.prepare()
+            while speech.loadState().busy { try? await Task.sleep(for: .milliseconds(1)) }
+        }
+        return calls.count
+    }
+
+    @Test func failedLoadsStopAfterThreeOrTenNetworkFailures() async {
+        #expect(await loads(failingWith: Boom()) == 3)
+        #expect(await loads(failingWith: URLError(.notConnectedToInternet)) == 10)
+    }
 }

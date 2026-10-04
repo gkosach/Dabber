@@ -32,7 +32,9 @@ public final class ParakeetSpeech: @unchecked Sendable {
     private var loading = false
     private var loadError: String?
     private var failures = 0
+    private var networkFailures = 0
     private static let maxFailures = 3
+    private static let maxNetworkFailures = 10
 
     init(load: @escaping @Sendable () async throws -> AsrManager = makeManager) {
         self.load = load
@@ -40,9 +42,12 @@ public final class ParakeetSpeech: @unchecked Sendable {
 
     /// Starts the download and load in the background. Calling it again is free; after a failure it retries,
     /// but gives up after three failures in one app run so a broken model is not downloaded again on every finalize.
+    /// Network failures have a cap of their own, ten: a proxy that breaks every download would otherwise make each
+    /// finalize download the 470 MB model again.
     public func prepare() {
         let start = lock.withLock {
-            guard manager == nil, !loading, failures < Self.maxFailures else { return false }
+            guard manager == nil, !loading, failures < Self.maxFailures, networkFailures < Self.maxNetworkFailures
+            else { return false }
             loading = true
             loadError = nil
             return true
@@ -64,7 +69,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
         _ = try result.get()
     }
 
-    /// Keeps the loaded model or the reason it failed. Only failures other than network ones use up a retry.
+    /// Keeps the loaded model or the reason it failed, and counts network failures apart from the others.
     /// The caller holds the lock.
     private func record(_ result: Result<AsrManager, any Error>) {
         switch result {
@@ -73,7 +78,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
             loadError = nil
         case .failure(let error):
             loadError = error.localizedDescription
-            if !Self.isNetwork(error) { failures += 1 }
+            if Self.isNetwork(error) { networkFailures += 1 } else { failures += 1 }
         }
     }
 
@@ -86,10 +91,14 @@ public final class ParakeetSpeech: @unchecked Sendable {
         prepare()
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
-            let (ready, busy) = lock.withLock { (manager != nil, loading) }
+            let (ready, busy) = loadState()
             if ready || !busy { return }
             do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
         }
+    }
+
+    func loadState() -> (ready: Bool, busy: Bool) {
+        lock.withLock { (manager != nil, loading) }
     }
 
     public func transcribe(_ url: URL) throws -> [SpokenWord] {
@@ -130,9 +139,10 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
     }
 
-    /// Being offline is transient, so it does not use up the retries. FluidAudio reports download problems as its
-    /// own DownloadError (a stalled transfer, a rate limit, a server error). They count as network failures, except
-    /// a model file that is missing on the server (HTTP 4xx other than 429) or in the cache.
+    /// Being offline is transient, so it uses up one of the ten network retries, not one of the three others.
+    /// FluidAudio reports download problems as its own DownloadError (a stalled transfer, a rate limit, a server
+    /// error). They count as network failures, except a model file that is missing on the server (HTTP 4xx other
+    /// than 429) or in the cache.
     static func isNetwork(_ error: Error) -> Bool {
         if let download = error as? DownloadError {
             switch download {
