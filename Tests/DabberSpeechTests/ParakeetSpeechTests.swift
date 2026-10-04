@@ -1,3 +1,4 @@
+import AVFoundation
 import FluidAudio
 import Testing
 import DabberCore
@@ -18,5 +19,41 @@ struct ParakeetSpeechTests {
 
     @Test func noTokensNoWords() {
         #expect(ParakeetSpeech.words([]).isEmpty)
+    }
+
+    @Test func standaloneSpaceTokenSeparatesNumbers() {
+        let words = ParakeetSpeech.words([
+            t(" При", 0.0, 0.1), t("вет", 0.1, 0.3), t(" ", 0.3, 0.4), t("5", 0.5, 0.6), t("0", 0.6, 0.7), t(",", 0.7, 0.8),
+        ])
+        #expect(words.map(\.text) == ["Привет", "50,"])
+    }
+
+    @Test func stereoIsDownmixedToMono16k() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-speech-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let url = dir.appendingPathComponent("stereo.caf")
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false)!
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000)!
+        buf.frameLength = 48_000
+        for i in 0..<48_000 {
+            buf.floatChannelData![0][i] = 0
+            buf.floatChannelData![1][i] = 0.5 * Float(sin(2 * Double.pi * 440 * Double(i) / 48_000))
+        }
+        do {
+            let file = try AVAudioFile(forWriting: url, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+            try file.write(from: buf)
+        }
+        let mono = try #require(try ParakeetSpeech.monoCopy(of: url))
+        defer { try? FileManager.default.removeItem(at: mono) }
+        let out = try AVAudioFile(forReading: mono)
+        #expect(out.fileFormat.channelCount == 1)
+        #expect(out.fileFormat.sampleRate == 16_000)
+        #expect(abs(Int(out.length) - 16_000) < 200)
+        let pcm = AVAudioPCMBuffer(pcmFormat: out.processingFormat, frameCapacity: AVAudioFrameCount(out.length))!
+        try out.read(into: pcm)
+        let n = Int(pcm.frameLength)
+        let rms = (0..<n).reduce(Float(0)) { $0 + pcm.floatChannelData![0][$1] * pcm.floatChannelData![0][$1] } / Float(n)
+        #expect(rms.squareRoot() > 0.1)
     }
 }

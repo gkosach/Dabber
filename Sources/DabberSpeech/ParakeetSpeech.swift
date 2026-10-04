@@ -1,3 +1,4 @@
+import AVFoundation
 import DabberCore
 import FluidAudio
 import Foundation
@@ -15,7 +16,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
 
         public var errorDescription: String? {
             switch self {
-            case .notReady(nil): "the speech model is still downloading"
+            case .notReady(nil): "the speech model is not ready yet"
             case .notReady(let why?): "the speech model could not be loaded: \(why)"
             }
         }
@@ -58,9 +59,11 @@ public final class ParakeetSpeech: @unchecked Sendable {
             prepare()
             throw SpeechError.notReady(failure)
         }
+        let mono = try Self.monoCopy(of: url)
+        defer { if let mono { try? FileManager.default.removeItem(at: mono) } }
         return try blocking {
             var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
-            let result = try await asr.transcribe(url, decoderState: &state)
+            let result = try await asr.transcribe(mono ?? url, decoderState: &state)
             return Self.words(result.tokenTimings ?? [])
         }
     }
@@ -75,16 +78,42 @@ public final class ParakeetSpeech: @unchecked Sendable {
     }
 
     static func words(_ tokens: [TokenTiming]) -> [SpokenWord] {
-        var out: [SpokenWord] = []
-        for token in tokens {
-            let text = token.token.trimmingCharacters(in: .whitespacesAndNewlines)
-            let start = Int((token.startTime * 1000).rounded()), end = Int((token.endTime * 1000).rounded())
-            if let last = out.last, !token.token.hasPrefix(" "), !token.token.hasPrefix("\n") {
-                out[out.count - 1] = SpokenWord(startMillis: last.startMillis, endMillis: end, text: last.text + text)
-            } else if !text.isEmpty {
-                out.append(SpokenWord(startMillis: start, endMillis: end, text: text))
-            }
+        buildWordTimings(from: tokens).compactMap { word in
+            let text = word.word.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            return SpokenWord(
+                startMillis: Int((word.startTime * 1000).rounded()),
+                endMillis: Int((word.endTime * 1000).rounded()), text: text)
         }
+    }
+
+    /// FluidAudio reads only the left channel of a stereo file, so a multi-channel track is downmixed to a temporary
+    /// mono 16 kHz copy first. Returns nil for a mono file.
+    static func monoCopy(of url: URL) throws -> URL? {
+        let input = try AVAudioFile(forReading: url)
+        guard input.fileFormat.channelCount > 1 else { return nil }
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+        guard let converter = AVAudioConverter(from: input.processingFormat, to: format),
+              let inBuf = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: AVAudioFrameCount(input.length))
+        else { throw SpeechError.notReady("cannot downmix \(url.lastPathComponent)") }
+        converter.downmix = true
+        try input.read(into: inBuf)
+        let capacity = AVAudioFrameCount(Double(input.length) * 16_000 / input.processingFormat.sampleRate) + 1024
+        guard let outBuf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
+            throw SpeechError.notReady("cannot downmix \(url.lastPathComponent)")
+        }
+        var fed = false
+        var convError: NSError?
+        let status = converter.convert(to: outBuf, error: &convError) { _, inStatus in
+            if fed { inStatus.pointee = .endOfStream; return nil }
+            fed = true
+            inStatus.pointee = .haveData
+            return inBuf
+        }
+        if status == .error { throw convError ?? SpeechError.notReady("cannot downmix \(url.lastPathComponent)") }
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-mono-\(UUID().uuidString).caf")
+        let file = try AVAudioFile(forWriting: out, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
+        try file.write(from: outBuf)
         return out
     }
 }
@@ -95,7 +124,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
 private func blocking<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
     let done = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Result<T, any Error>?
-    Task.detached(priority: .utility) {
+    Task.detached(priority: Task.currentPriority) {
         do { result = .success(try await body()) } catch { result = .failure(error) }
         done.signal()
     }

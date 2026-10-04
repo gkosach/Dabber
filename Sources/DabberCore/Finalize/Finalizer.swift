@@ -71,7 +71,7 @@ public enum Finalizer {
         var cues: [SubtitleCue] = []
         var transcriptError: String?
         var subtitlesError: String?
-        if total > 0, let speech {
+        if total >= Timeline.rate, let speech {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.textFile))
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.srtFile))
             do {
