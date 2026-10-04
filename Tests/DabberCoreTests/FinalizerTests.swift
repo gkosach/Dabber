@@ -1005,6 +1005,30 @@ extension FinalizerTests {
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
     }
 
+    @Test func onlyAFailureThatPointsAtTheSubtitlesIsTriedAgainWithoutThem() throws {
+        let (dir, audio) = try mixFolder()
+        let good = try slide(dir, atSeconds: 0, screen())
+        let out = dir.appendingPathComponent(Finalizer.videoFile)
+        func failure(_ slides: [Slide], _ cues: [SubtitleCue]) throws -> any Error {
+            do {
+                try SlideshowWriter.write(audio: audio, slides: slides, chapters: [], subtitles: cues, title: nil, to: out)
+            } catch { return error }
+            Issue.record("the write did not fail")
+            return SlideshowError.noFrames
+        }
+        let overlap = [SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+                       SubtitleCue(startMillis: 1_000, endMillis: 1_500, text: "Я: Два")]
+        #expect(Finalizer.subtitlesMayBeAtFault(try failure([good], overlap)))
+        try Data([1, 2, 3]).write(to: dir.appendingPathComponent("broken.heic"))
+        let broken = Slide(offsetNanos: 500_000_000, url: dir.appendingPathComponent("broken.heic"))
+        #expect(!Finalizer.subtitlesMayBeAtFault(try failure([good, broken], overlap)))
+        let other = NSError(domain: AVFoundationErrorDomain, code: -11800, userInfo: [
+            NSUnderlyingErrorKey: NSError(domain: NSOSStatusErrorDomain, code: -12345),
+        ])
+        #expect(!Finalizer.subtitlesMayBeAtFault(SlideshowError.write(other)))
+        #expect(!Finalizer.subtitlesMayBeAtFault(SlideshowError.write(nil)))
+    }
+
     @Test func briefPrefersTheReadableDescriptionAndCutsItShort() {
         struct Described: LocalizedError { var errorDescription: String? { "described" } }
         struct Plain: Error, CustomStringConvertible { var description: String { "plain" } }

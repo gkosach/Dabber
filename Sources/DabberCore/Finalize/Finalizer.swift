@@ -150,7 +150,7 @@ public enum Finalizer {
             .filter { FileManager.default.fileExists(atPath: $0.url.path) }
         guard !slides.isEmpty else { return (nil, nil) }
         let out = dir.appendingPathComponent(videoFile)
-        func attempt(_ cues: [SubtitleCue]) -> String? {
+        func attempt(_ cues: [SubtitleCue]) -> (any Error)? {
             do {
                 try SlideshowWriter.write(
                     audio: dir.appendingPathComponent(mixFile), slides: slides, chapters: chapters, subtitles: cues,
@@ -158,13 +158,21 @@ public enum Finalizer {
                 return nil
             } catch {
                 try? FileManager.default.removeItem(at: out)
-                return brief(error)
+                return error
             }
         }
         guard let failure = attempt(subtitles) else { return (nil, nil) }
-        guard !subtitles.isEmpty else { return (failure, nil) }
+        guard !subtitles.isEmpty, subtitlesMayBeAtFault(failure) else { return (brief(failure), nil) }
         let retry = attempt([])
-        return retry == nil ? (nil, failure) : (retry, nil)
+        return retry == nil ? (nil, brief(failure)) : (retry.map(brief), nil)
+    }
+
+    /// AVFoundation rejects a subtitle sample of zero length or one that overlaps the previous one: the writer fails
+    /// with -11800 and the underlying status -16364. Only then is the video worth a second try without subtitles;
+    /// a broken frame or a full disk would fail again.
+    static func subtitlesMayBeAtFault(_ error: any Error) -> Bool {
+        guard case SlideshowError.write(let cause?) = error else { return false }
+        return (cause as NSError).code == -11800 && WriterFailure.status(cause) == -16364
     }
 
     static func brief(_ error: any Error) -> String {
