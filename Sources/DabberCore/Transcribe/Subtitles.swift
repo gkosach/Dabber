@@ -14,6 +14,7 @@ public enum Subtitles {
     /// AVAssetWriter fails the whole mp4 (-16364) on near-zero subtitle samples; nothing shorter than this is written.
     public static let minMillis = 300
 
+    /// Cues never overlap, start in increasing order and last at least minMillis. A line shorter than minMillis that overlaps another line is folded away here; the txt and srt keep it.
     public static func cues(_ lines: [TranscriptLine]) -> [SubtitleCue] {
         let cuts = Set(lines.flatMap { [$0.startMillis, $0.endMillis] }).sorted()
         var out: [SubtitleCue] = []
@@ -26,6 +27,8 @@ public enum Subtitles {
                 if touchesLast, b - a < minMillis { out[out.count - 1].endMillis = b }
             } else if touchesLast, out.last?.text == text || b - a < minMillis {
                 out[out.count - 1].endMillis = b
+            } else if touchesLast, let last = out.last, last.endMillis - last.startMillis < minMillis {
+                out[out.count - 1] = SubtitleCue(startMillis: last.startMillis, endMillis: b, text: text)
             } else {
                 out.append(SubtitleCue(startMillis: a, endMillis: b, text: text))
             }

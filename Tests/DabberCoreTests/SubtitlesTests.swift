@@ -48,4 +48,18 @@ struct SubtitlesTests {
     @Test func noLinesNoCues() {
         #expect(Subtitles.cues([]).isEmpty)
     }
+
+    @Test func aShortCueRightBeforeAnotherSpeakerIsTakenOver() {
+        let cues = Subtitles.cues([line("Я", "Да", 0, 100), line("Собеседники", "Нет", 100, 5_000)])
+        #expect(cues == [SubtitleCue(startMillis: 0, endMillis: 5_000, text: "Собеседники: Нет")])
+    }
+
+    @Test func aShortCueAfterALongGapFollowedDirectlyByALineIsTakenOver() {
+        let cues = Subtitles.cues([
+            line("Я", "Раз", 0, 1_000), line("Я", "Да", 5_000, 5_100), line("Собеседники", "Нет", 5_100, 9_000),
+        ])
+        #expect(cues.allSatisfy { $0.endMillis - $0.startMillis >= Subtitles.minMillis })
+        #expect(zip(cues, cues.dropFirst()).allSatisfy { $0.endMillis <= $1.startMillis })
+        #expect(cues.last == SubtitleCue(startMillis: 5_000, endMillis: 9_000, text: "Собеседники: Нет"))
+    }
 }
