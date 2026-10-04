@@ -845,6 +845,19 @@ extension FinalizerTests {
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.srtFile).path))
     }
 
+    @Test func macAudioHeardByTheMicIsNotRepeatedAsMine() throws {
+        let dir = try makeSession()
+        try Finalizer.run(dir, speech: { url in
+            url.lastPathComponent.hasPrefix("mic")
+                ? [SpokenWord(startMillis: 100, endMillis: 300, text: "Great"), SpokenWord(startMillis: 350, endMillis: 600, text: "and"),
+                   SpokenWord(startMillis: 650, endMillis: 900, text: "small."), SpokenWord(startMillis: 2_000, endMillis: 2_400, text: "Да")]
+                : [SpokenWord(startMillis: 0, endMillis: 250, text: "great"), SpokenWord(startMillis: 300, endMillis: 550, text: "and"),
+                   SpokenWord(startMillis: 600, endMillis: 850, text: "small,")]
+        })
+        let text = try String(contentsOf: dir.appendingPathComponent(Transcript.textFile), encoding: .utf8)
+        #expect(text == "[00:00:00] Собеседники: great and small,\n[00:00:02] Я: Да\n")
+    }
+
     @Test func aTranscriptionFailureKeepsTheRecordingAndIsReported() throws {
         struct Boom: Error, CustomStringConvertible { var description: String { "no model" } }
         let dir = try makeSession()

@@ -190,17 +190,23 @@ public enum Finalizer {
     /// A failed track does not cost the others their text. If every track failed the same way (the model is not
     /// ready, say), `failure` is that error once; otherwise it names each failed track. The 200 characters of
     /// error text are shared among the failed tracks, so every track name stays in the message.
+    /// Mac audio is transcribed first, so that mic words repeating it (speakers instead of headphones) are left out.
     private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) -> (lines: [TranscriptLine], failure: String?) {
         let heard = tracks.filter { !$0.reader.placements.isEmpty }
-        var lines: [[TranscriptLine]] = []
-        var failed: [(track: String, error: String)] = []
-        for track in heard {
+        let isMic = heard.map { $0.speaker == Transcript.me }
+        var lines = [[TranscriptLine]](repeating: [], count: heard.count)
+        var failures = [String?](repeating: nil, count: heard.count)
+        var macWords: [SpokenWord] = []
+        for i in heard.indices.filter({ !isMic[$0] }) + heard.indices.filter({ isMic[$0] }) {
             do {
-                lines.append(Transcript.lines(try speech(dir.appendingPathComponent(track.base + ".m4a")), speaker: track.speaker))
+                var words = try speech(dir.appendingPathComponent(heard[i].base + ".m4a"))
+                if isMic[i] { words = Transcript.withoutEcho(words, heard: macWords) } else { macWords += words }
+                lines[i] = Transcript.lines(words, speaker: heard[i].speaker)
             } catch {
-                failed.append((track.base, brief(error)))
+                failures[i] = brief(error)
             }
         }
+        let failed = zip(heard, failures).compactMap { track, error in error.map { (track: track.base, error: $0) } }
         guard let first = failed.first else { return (Transcript.merge(lines), nil) }
         if failed.count == heard.count, failed.allSatisfy({ $0.error == first.error }) {
             return (Transcript.merge(lines), first.error)
