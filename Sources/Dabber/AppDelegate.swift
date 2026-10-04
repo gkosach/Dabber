@@ -64,6 +64,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ParakeetSpeech.shared.prepare()
         let pending = Finalizer.sessionFolders(root: work)
         Task.detached(priority: .utility) {
+            ParakeetSpeech.removeStaleTempFiles()
             if pending.contains(where: Finalizer.needsRecovery) { await ParakeetSpeech.shared.waitIfCached(seconds: 60) }
             let failure = Delivery.recover(
                 pending, work: work, output: output, speech: ParakeetSpeech.shared.transcribe,

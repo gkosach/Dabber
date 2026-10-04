@@ -96,6 +96,22 @@ struct ParakeetSpeechTests {
         #expect(rms.squareRoot() > 0.1)
     }
 
+    @Test func staleSpeechTempFilesAreRemovedAndFreshOnesKept() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-speech-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let now = Date()
+        for (name, age) in [("dabber-mono-old.caf", 7_200.0), ("fluidaudio-streaming-old.raw", 7_200), ("dabber-mono-new.caf", 60),
+                            ("fluidaudio-streaming-new.raw", 60), ("other-old.caf", 7_200)] {
+            let url = dir.appendingPathComponent(name)
+            try Data([1]).write(to: url)
+            try FileManager.default.setAttributes([.modificationDate: now.addingTimeInterval(-age)], ofItemAtPath: url.path)
+        }
+        ParakeetSpeech.removeStaleTempFiles(in: dir, now: now)
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: dir.path))
+            == ["dabber-mono-new.caf", "fluidaudio-streaming-new.raw", "other-old.caf"])
+    }
+
     @Test func onlyNetworkFailuresCountAsNetwork() {
         let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
         #expect(ParakeetSpeech.isNetwork(URLError(.timedOut)))

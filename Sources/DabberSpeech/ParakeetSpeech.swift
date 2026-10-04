@@ -141,6 +141,22 @@ public final class ParakeetSpeech: @unchecked Sendable {
         throw SpeechError.noTimings
     }
 
+    private static let monoPrefix = "dabber-mono-"
+    /// The temporary mono copy and FluidAudio's converted audio for a long file (`fluidaudio-streaming-*.raw`).
+    private static let tempPrefixes = [monoPrefix, "fluidaudio-streaming-"]
+
+    /// A crash or a kill during transcription leaves the temporary audio behind, about 0.5 GB per hour of stereo.
+    /// This removes such files older than an hour; a younger one may belong to a transcription that is running now.
+    public static func removeStaleTempFiles(in dir: URL = FileManager.default.temporaryDirectory, now: Date = Date()) {
+        let files = (try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        for url in files where tempPrefixes.contains(where: url.lastPathComponent.hasPrefix) {
+            guard let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                  now.timeIntervalSince(date) > 3_600 else { continue }
+            try? FileManager.default.removeItem(at: url)
+        }
+    }
+
     /// Being offline is transient, so it does not use up the retries. FluidAudio reports download problems as its
     /// own DownloadError (a stalled transfer, a rate limit, a server error). They count as network failures, except
     /// a model file that is missing on the server (HTTP 4xx other than 429) or in the cache.
@@ -211,7 +227,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
               let outBuf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000 * 11)
         else { throw fail }
         converter.downmix = true
-        let out = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-mono-\(UUID().uuidString).caf")
+        let out = FileManager.default.temporaryDirectory.appendingPathComponent("\(monoPrefix)\(UUID().uuidString).caf")
         do {
             let file = try AVAudioFile(forWriting: out, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             var readError: Error?
