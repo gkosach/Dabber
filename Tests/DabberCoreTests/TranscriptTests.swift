@@ -25,6 +25,21 @@ struct TranscriptTests {
         let lines = Transcript.lines(words, speaker: "Я")
         #expect(lines.allSatisfy { $0.text.count <= Transcript.maxChars })
         #expect(lines.map(\.text).joined(separator: " ") == Array(repeating: "слово", count: 30).joined(separator: " "))
+        #expect(lines.map { $0.text.count } == [83, 83, 11])
+    }
+
+    @Test func aLineOfExactly84CharactersStaysOneLine() {
+        let words = (0..<11).map { w("abcdef", $0 * 300, $0 * 300 + 250) } + [w("abcdefg", 3_300, 3_550)]
+        let lines = Transcript.lines(words, speaker: "Я")
+        #expect(lines.count == 1)
+        #expect(lines.first?.text.count == 84)
+    }
+
+    @Test func outOfOrderAndZeroLengthWordsNeverGiveEmptyOrInvertedLines() {
+        #expect(Transcript.lines([w("а", 5_000, 5_500), w("б", 5_600, 1_200)], speaker: "Я")
+            == [TranscriptLine(startMillis: 5_000, endMillis: 5_500, speaker: "Я", text: "а б")])
+        #expect(Transcript.lines([w("Да", 1_000, 1_000)], speaker: "Я")
+            == [TranscriptLine(startMillis: 1_000, endMillis: 1_001, speaker: "Я", text: "Да")])
     }
 
     @Test func blankWordsAreSkipped() {

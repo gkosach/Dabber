@@ -36,6 +36,7 @@ public enum Transcript {
     public static let srtFile = "transcript.srt"
     static let pauseMillis = 1_000
     static let maxChars = 84
+    static let minSentenceMillis = 1_000
 
     public static func lines(_ words: [SpokenWord], speaker: String) -> [TranscriptLine] {
         var out: [TranscriptLine] = []
@@ -44,12 +45,12 @@ public enum Transcript {
             let word = w.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !word.isEmpty else { continue }
             if let c = current, w.startMillis - c.endMillis < pauseMillis, c.text.count + 1 + word.count <= maxChars {
-                current = TranscriptLine(startMillis: c.startMillis, endMillis: w.endMillis, speaker: speaker, text: c.text + " " + word)
+                current = TranscriptLine(startMillis: c.startMillis, endMillis: max(c.endMillis, w.endMillis), speaker: speaker, text: c.text + " " + word)
             } else {
                 if let c = current { out.append(c) }
-                current = TranscriptLine(startMillis: w.startMillis, endMillis: w.endMillis, speaker: speaker, text: word)
+                current = TranscriptLine(startMillis: w.startMillis, endMillis: max(w.endMillis, w.startMillis + 1), speaker: speaker, text: word)
             }
-            if let c = current, c.endMillis - c.startMillis >= 1_000, let last = word.last, ".?!".contains(last) {
+            if let c = current, c.endMillis - c.startMillis >= minSentenceMillis, let last = word.last, ".?!".contains(last) {
                 out.append(c)
                 current = nil
             }
