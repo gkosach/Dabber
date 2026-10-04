@@ -4,9 +4,14 @@ import PackageDescription
 let package = Package(
     name: "Dabber",
     platforms: [.macOS("26.0")],
+    dependencies: [
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.5"),
+    ],
     targets: [
         .target(name: "DabberCore"),
-        .executableTarget(name: "Dabber", dependencies: ["DabberCore"]),
+        .target(name: "DabberSpeech", dependencies: ["DabberCore", .product(name: "FluidAudio", package: "FluidAudio")]),
+        .executableTarget(name: "Dabber", dependencies: ["DabberCore", "DabberSpeech"]),
         .testTarget(name: "DabberCoreTests", dependencies: ["DabberCore"]),
+        .testTarget(name: "DabberSpeechTests", dependencies: ["DabberSpeech"]),
     ]
 )
