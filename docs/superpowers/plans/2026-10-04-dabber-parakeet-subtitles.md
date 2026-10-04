@@ -1002,6 +1002,7 @@ Found while running Task 6 on a real meeting: on a mic track that is almost sile
 - silent mic track of «дальше в edenex»: both invented lines have mean confidence 0.50–0.55, dropped at a 0.7 threshold;
 - the 24-minute «дальше в edenex» mix: 228 lines, 1 dropped at 0.7 («but then», also junk);
 - the 11-minute «Daily» mix: 90 lines, none dropped.
+- lowered to 0.6 after a real two-word reply scored 0.67 («так попробуем.» on a laptop mic, 2026-10-04 23-23). Re-measured with the current `Transcript.lines` (sentence ends close lines too): the silent mic track gives 3 invented lines at 0.50–0.56, all below 0.6; the «дальше в edenex» mix gives 310 lines, 2 below 0.6 («Так, да.» 0.55 and «but then» 0.48); the «Daily» mix gives 155 lines, none below 0.7.
 
 **Files:**
 - Modify: `Sources/DabberCore/Transcribe/Transcript.swift` (`SpokenWord`, `Transcript.lines`)

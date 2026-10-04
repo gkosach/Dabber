@@ -12,6 +12,12 @@ struct TranscriptTests {
         #expect(lines.map(\.text) == ["Да хорошо"])
     }
 
+    @Test func aRealShortReplyAt067IsKeptAndInventedLinesAt055AreNot() {
+        let lines = Transcript.lines([w("так", 22_240, 22_400, 0.49), w("попробуем.", 22_400, 25_840, 0.85),
+                                      w("No,", 30_000, 30_300, 0.55), w("it's", 30_350, 30_600, 0.55)], speaker: "Я")
+        #expect(lines.map(\.text) == ["так попробуем."])
+    }
+
     @Test func anUnsureSentenceEndDoesNotLeakIntoTheNextLine() {
         let lines = Transcript.lines([w("Maybe", 0, 500, 0.5), w("so.", 600, 1_200, 0.5), w("Да", 1_500, 1_800, 0.95)], speaker: "Я")
         #expect(lines.map(\.text) == ["Да"])
