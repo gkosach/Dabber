@@ -96,6 +96,9 @@ struct RecordingSection: View {
             Toggle("Record slides", isOn: Binding(get: { model.slidesOn }, set: { _ in model.toggleSlides() }))
                 .disabled(model.isRecording)
             Toggle("Transcribe", isOn: Binding(get: { model.transcribeOn }, set: { _ in model.toggleTranscribe() }))
+            if let line = model.speechStatusText {
+                Text(line).font(.caption).foregroundStyle(speechFailed ? .orange : .secondary)
+            }
             if model.isRecording {
                 HStack {
                     Text("Name").font(.caption).foregroundStyle(.secondary)
@@ -124,6 +127,10 @@ struct RecordingSection: View {
             .buttonStyle(.borderless)
             .disabled(model.lastSessionDir == nil)
         }
+    }
+
+    private var speechFailed: Bool {
+        if case .failed = model.speechStatus { true } else { false }
     }
 
     private func chooseFolder() {

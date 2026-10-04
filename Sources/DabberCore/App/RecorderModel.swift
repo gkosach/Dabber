@@ -86,6 +86,7 @@ public final class RecorderModel {
     public private(set) var outputFolder: URL
     public private(set) var slidesOn: Bool
     public private(set) var transcribeOn: Bool
+    public private(set) var speechStatus = SpeechModelStatus.idle
     public private(set) var menuOpen = false
     public private(set) var hotkeyAllowed: Bool?
     public private(set) var backupUID: String?
@@ -101,6 +102,7 @@ public final class RecorderModel {
     private let slides: SlideRecorder?
     private let persistSlides: @Sendable (Bool) -> Void
     private let persistTranscribe: @Sendable (Bool) -> Void
+    private let readSpeechStatus: @Sendable () -> SpeechModelStatus
     private let hotkey: (any MarkHotkey)?
     private let persistBackup: @Sendable (String?) -> Void
     private var enabledIDs: Set<String>
@@ -136,6 +138,7 @@ public final class RecorderModel {
         persistSlides: @escaping @Sendable (Bool) -> Void = { _ in },
         transcribeOn: Bool = true,
         persistTranscribe: @escaping @Sendable (Bool) -> Void = { _ in },
+        speechStatus: @escaping @Sendable () -> SpeechModelStatus = { .idle },
         hotkey: (any MarkHotkey)? = nil,
         backupUID: String? = nil,
         persistBackup: @escaping @Sendable (String?) -> Void = { _ in }
@@ -156,6 +159,7 @@ public final class RecorderModel {
         self.persistSlides = persistSlides
         self.transcribeOn = transcribeOn
         self.persistTranscribe = persistTranscribe
+        readSpeechStatus = speechStatus
         self.hotkey = hotkey
         self.backupUID = backupUID
         self.persistBackup = persistBackup
@@ -229,6 +233,21 @@ public final class RecorderModel {
     public func toggleTranscribe() {
         transcribeOn.toggle()
         persistTranscribe(transcribeOn)
+    }
+
+    /// The line under the Transcribe switch. Nothing once the model is ready, so the menu stays calm and the line
+    /// going away is the sign that recordings will get a transcript.
+    public var speechStatusText: String? {
+        guard transcribeOn else { return nil }
+        switch speechStatus {
+        case .idle, .ready: return nil
+        case .downloading(nil): return "Downloading speech model…"
+        case .downloading(let done?): return "Downloading speech model… \(Int(done * 100))%"
+        case .preparing: return "Preparing speech model…"
+        case .failed(let why, let gaveUp):
+            let reason = why.hasSuffix(".") ? String(why.dropLast()) : why
+            return "Speech model failed: \(reason)" + (gaveUp ? ". Dabber will try again at the next launch." : "")
+        }
     }
 
     /// At launch, when the last model load never finished: the next load would likely crash Dabber again.
@@ -394,6 +413,8 @@ public final class RecorderModel {
 
     public func tick(now: Date = Date()) {
         guard !starting else { return }
+        let speech = readSpeechStatus()
+        if speech != speechStatus { speechStatus = speech }
         let status = engine.status(at: now)
         let stoppedItself = phase != .idle && status.phase == .idle && !stopping
         if status.phase == .idle {

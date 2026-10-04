@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             UserDefaults.standard.set($0, forKey: transcribeKey)
             if $0 { ParakeetSpeech.shared.prepare() }
         },
+        speechStatus: { ParakeetSpeech.shared.status },
         hotkey: LiveMarkHotkey(),
         backupUID: RecorderModel.backupSetting(
             saved: UserDefaults.standard.string(forKey: backupKey), devices: (try? inputDevices()) ?? []),

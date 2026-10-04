@@ -934,6 +934,33 @@ private func slidesModel(
     #expect(m.warning == nil)
 }
 
+@MainActor @Test func theSpeechModelLineShowsOnlyWhileTranscribeIsOnAndTheModelIsNotReady() {
+    nonisolated(unsafe) var status = SpeechModelStatus.idle
+    let m = RecorderModel(
+        engine: FakeEngine(), catalog: FakeCatalog(devices: [airpods]), enabledIDs: ["computer"], persist: { _ in },
+        finalize: { dir, _ in dir }, transcribeOn: true, speechStatus: { status })
+    let lines: [(SpeechModelStatus, String?)] = [
+        (.idle, nil),
+        (.downloading(nil), "Downloading speech model…"),
+        (.downloading(0.379), "Downloading speech model… 37%"),
+        (.preparing, "Preparing speech model…"),
+        (.ready, nil),
+        (.failed("broken model", gaveUp: false), "Speech model failed: broken model"),
+        (.failed("The Internet connection appears to be offline.", gaveUp: true),
+         "Speech model failed: The Internet connection appears to be offline. Dabber will try again at the next launch."),
+    ]
+    for (next, line) in lines {
+        status = next
+        m.tick()
+        #expect(m.speechStatus == next)
+        #expect(m.speechStatusText == line, "\(next)")
+    }
+    status = .preparing
+    m.tick()
+    m.toggleTranscribe()
+    #expect(m.speechStatusText == nil)
+}
+
 @MainActor @Test func recordingWithSlidesGrabsIntoTheEngineUntilStop() async {
     let e = FakeEngine()
     let (m, slides) = slidesModel(e, on: true)
