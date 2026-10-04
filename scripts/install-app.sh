@@ -19,7 +19,7 @@ if running; then
     sleep 1
   done
   if running; then
-    echo "refusing: Dabber is still running after 10 minutes; quit it and run this again"
+    echo "refusing: Dabber is still running after 10 minutes; wait for Dabber to quit, then run this again"
     exit 1
   fi
 fi
