@@ -12,6 +12,11 @@ struct TranscriptTests {
         #expect(lines.map(\.text) == ["Да хорошо"])
     }
 
+    @Test func anUnsureSentenceEndDoesNotLeakIntoTheNextLine() {
+        let lines = Transcript.lines([w("Maybe", 0, 500, 0.5), w("so.", 600, 1_200, 0.5), w("Да", 1_500, 1_800, 0.95)], speaker: "Я")
+        #expect(lines.map(\.text) == ["Да"])
+    }
+
     @Test func oneUnsureWordDoesNotDropASureLine() {
         let lines = Transcript.lines([w("Как", 0, 300, 1), w("дела", 350, 600, 0.3), w("сегодня", 650, 1_000, 1)], speaker: "Я")
         #expect(lines.map(\.text) == ["Как дела сегодня"])

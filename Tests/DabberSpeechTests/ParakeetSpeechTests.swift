@@ -27,6 +27,16 @@ struct ParakeetSpeechTests {
         #expect(abs(words[1].confidence - 0.8) < 1e-6)
     }
 
+    @Test func aBareSpaceTokenConfidenceDoesNotLeakIntoTheNextWord() {
+        let words = ParakeetSpeech.words([
+            TokenTiming(token: " ", tokenId: 0, startTime: 0, endTime: 0.1, confidence: 0.1),
+            TokenTiming(token: "5", tokenId: 0, startTime: 0.2, endTime: 0.3, confidence: 0.9),
+            TokenTiming(token: "0", tokenId: 0, startTime: 0.3, endTime: 0.4, confidence: 0.9),
+        ])
+        #expect(words.map(\.text) == ["50"])
+        #expect(abs(words[0].confidence - 0.9) < 1e-6)
+    }
+
     @Test func noTokensNoWords() {
         #expect(ParakeetSpeech.words([]).isEmpty)
     }

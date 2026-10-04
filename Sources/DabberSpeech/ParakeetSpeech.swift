@@ -118,14 +118,15 @@ public final class ParakeetSpeech: @unchecked Sendable {
                 currentText += t.token
             }
         }
-        return groups.compactMap { group in
-            guard let word = buildWordTimings(from: group).first else { return nil }
-            let text = word.word.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            return SpokenWord(
-                startMillis: Int((word.startTime * 1000).rounded()),
-                endMillis: Int((word.endTime * 1000).rounded()), text: text,
-                confidence: group.map { Double($0.confidence) }.reduce(0, +) / Double(group.count))
+        return groups.flatMap { group in
+            let mean = group.map { Double($0.confidence) }.reduce(0, +) / Double(group.count)
+            return buildWordTimings(from: group).compactMap { word -> SpokenWord? in
+                let text = word.word.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !text.isEmpty else { return nil }
+                return SpokenWord(
+                    startMillis: Int((word.startTime * 1000).rounded()),
+                    endMillis: Int((word.endTime * 1000).rounded()), text: text, confidence: mean)
+            }
         }
     }
 

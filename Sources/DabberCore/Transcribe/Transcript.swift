@@ -39,7 +39,7 @@ public enum Transcript {
     static let pauseMillis = 1_000
     static let maxChars = 84
     static let minSentenceMillis = 1_000
-    /// A line whose mean word confidence is lower is dropped: on near-silence the model invents phrases at 0.5-0.55.
+    /// A line whose mean word confidence is lower is dropped: on near-silence the model invents phrases at 0.5-0.55 (measured in docs/superpowers/plans/2026-10-04-dabber-parakeet-subtitles.md, Task 6b).
     static let minConfidence = 0.7
 
     public static func lines(_ words: [SpokenWord], speaker: String) -> [TranscriptLine] {
