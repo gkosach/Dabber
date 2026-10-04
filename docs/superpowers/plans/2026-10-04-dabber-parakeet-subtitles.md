@@ -311,7 +311,7 @@ public struct SubtitleCue: Equatable, Sendable {
 }
 
 public enum Subtitles {
-    /// AVAssetWriter fails the whole mp4 (-16364) on near-zero subtitle samples; nothing shorter than this is written.
+    /// Shortest cue anyone can read. AVAssetWriter also fails the whole mp4 (-16364) on a zero-length subtitle sample, so nothing shorter is ever written.
     public static let minMillis = 300
 
     public static func cues(_ lines: [TranscriptLine]) -> [SubtitleCue] {
@@ -471,7 +471,7 @@ enum SubtitleTrack {
         return (input, { samples.isEmpty ? nil : samples.removeFirst() })
     }
 
-    /// Contiguous samples from 0 to the end of the audio: cues plus empty gaps, none shorter than Subtitles.minMillis.
+    /// Contiguous samples from 0: cues plus empty gaps, none shorter than Subtitles.minMillis. The last one may end up to minMillis before the audio does.
     static func spans(_ cues: [SubtitleCue], endMillis: Int) -> [(start: Int, end: Int, text: String)] {
         var spans: [(start: Int, end: Int, text: String)] = []
         // A cue starting in the last minMillis of the audio would be cut below minMillis; it is dropped.
@@ -482,7 +482,7 @@ enum SubtitleTrack {
             } else if !spans.isEmpty {
                 spans[spans.count - 1].end = cue.startMillis
             }
-            spans.append((spans.last?.end ?? cue.startMillis, min(cue.endMillis, endMillis), cue.text))
+            spans.append((spans.last?.end ?? 0, min(cue.endMillis, endMillis), cue.text))
         }
         if let t = spans.last?.end, endMillis - t >= Subtitles.minMillis { spans.append((t, endMillis, "")) }
         return spans
@@ -490,7 +490,7 @@ enum SubtitleTrack {
 }
 ```
 
-If the first cue starts less than `minMillis` after 0, the first span starts at the cue's own start (no leading empty sample); the writer shows nothing before the first sample.
+If the first cue starts less than `minMillis` after 0, its span starts at 0, so it shows up to 299 ms early.
 
 - [ ] **Step 5: Add the lane to the slideshow**
 
@@ -676,7 +676,7 @@ In `Sources/DabberCore/Finalize/Finalizer.swift`:
    Add this test to `FinalizerTests` (the overlapping cues produce a zero-length span on purpose; `Subtitles.cues` never does that, so this simulates a future bug):
 
 ```swift
-    @Test func aBrokenSubtitleTrackIsDroppedAndTheVideoKept() throws {
+    @Test func aBrokenSubtitleTrackIsDroppedAndTheVideoKept() async throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
@@ -692,6 +692,7 @@ In `Sources/DabberCore/Finalize/Finalizer.swift`:
         #expect(result.slides == nil)
         #expect(result.subtitles?.hasPrefix("subtitles dropped: ") == true)
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
+        #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).isEmpty)
     }
 ```
 
