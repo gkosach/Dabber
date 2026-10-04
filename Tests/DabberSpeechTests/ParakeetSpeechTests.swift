@@ -48,6 +48,17 @@ struct ParakeetSpeechTests {
         #expect(words.map(\.text) == ["Привет", "50,"])
     }
 
+    @Test func textWithoutWordTimingsIsAnError() throws {
+        let result = { (text: String, tokens: [TokenTiming]?) in
+            ASRResult(text: text, confidence: 1, duration: 1, processingTime: 0, tokenTimings: tokens)
+        }
+        #expect(throws: ParakeetSpeech.SpeechError.self) { try ParakeetSpeech.words(of: result("Привет", nil)) }
+        #expect(throws: ParakeetSpeech.SpeechError.self) { try ParakeetSpeech.words(of: result("Привет", [])) }
+        #expect(try ParakeetSpeech.words(of: result(" ", nil)).isEmpty)
+        #expect(try ParakeetSpeech.words(of: result("Привет", [t(" Привет", 0.1, 0.4)])).map(\.text) == ["Привет"])
+        #expect(ParakeetSpeech.SpeechError.noTimings.localizedDescription == "the model returned text without word timings")
+    }
+
     @Test func stereoIsDownmixedToMono16k() throws {
         try checkDownmix(seconds: 1)
     }

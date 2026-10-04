@@ -16,12 +16,14 @@ public final class ParakeetSpeech: @unchecked Sendable {
         case notReady(String?)
         case downmix(String)
         case off
+        case noTimings
 
         public var errorDescription: String? {
             switch self {
             case .notReady(nil): "the speech model is not ready yet"
             case .notReady(let why?): "the speech model could not be loaded: \(why)"
             case .downmix(let name): "could not prepare \(name) for transcription"
+            case .noTimings: "the model returned text without word timings"
             case .off:
                 "transcription is off: the speech model did not finish twice; it is tried again after Dabber or macOS is updated"
             }
@@ -128,8 +130,15 @@ public final class ParakeetSpeech: @unchecked Sendable {
         return try blocking {
             var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
             let result = try await asr.transcribe(mono ?? url, decoderState: &state)
-            return Self.words(result.tokenTimings ?? [])
+            return try Self.words(of: result)
         }
+    }
+
+    /// Text without token timings would quietly give an empty transcript, so it is an error instead.
+    static func words(of result: ASRResult) throws -> [SpokenWord] {
+        let words = words(result.tokenTimings ?? [])
+        guard words.isEmpty, !result.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return words }
+        throw SpeechError.noTimings
     }
 
     /// Being offline is transient, so it does not use up the retries. FluidAudio reports download problems as its
