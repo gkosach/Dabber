@@ -952,7 +952,7 @@ and in the launch recovery pass `speech: ParakeetSpeech.shared.transcribe` to `D
 Add `import DabberSpeech` to `Sources/Dabber/Headless.swift`. Replace lines 277-279 with
 
 ```swift
-            try ParakeetSpeech.shared.prepareNow()
+            try? ParakeetSpeech.shared.prepareNow()  // offline: the recording still goes out, without a transcript
             let report = try Finalizer.run(stopped, speech: ParakeetSpeech.shared.transcribe)
             log.line("FINALIZED total=\(report.totalFrames) gaps=\(report.gaps.count) resampled=\(report.resampled.count)"
                 + (report.slidesError.map { " slidesError=\($0)" } ?? "")
