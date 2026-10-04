@@ -813,34 +813,74 @@ import DabberCore
 import FluidAudio
 import Foundation
 
-/// Parakeet TDT 0.6B v3 on the Neural Engine. The model (about 470 MB) is downloaded on first use into FluidAudio's
-/// cache in Application Support and stays loaded for the life of the app. No language hint: with one, English terms
-/// in Russian speech come out in Cyrillic.
+/// Parakeet TDT 0.6B v3 on the Neural Engine. No language hint: with one, English terms in Russian speech come out
+/// in Cyrillic. The model (about 470 MB, kept in FluidAudio's cache in Application Support) is downloaded and compiled
+/// in the background by `prepare()`. `transcribe` never downloads: it runs inside finalize, which holds the delivery
+/// lock and makes quitting wait, so until the model is ready it throws at once and the recording goes out without
+/// a transcript.
 public final class ParakeetSpeech: @unchecked Sendable {
     public static let shared = ParakeetSpeech()
 
+    public enum SpeechError: LocalizedError {
+        case notReady(String?)
+
+        public var errorDescription: String? {
+            switch self {
+            case .notReady(nil): "the speech model is still downloading"
+            case .notReady(let why?): "the speech model could not be loaded: \(why)"
+            }
+        }
+    }
+
     private let lock = NSLock()
     private var manager: AsrManager?
+    private var loading = false
+    private var loadError: String?
+
+    /// Starts the download and load in the background. Calling it again is free; after a failure it retries.
+    public func prepare() {
+        let start = lock.withLock {
+            guard manager == nil, !loading else { return false }
+            loading = true
+            return true
+        }
+        guard start else { return }
+        Task.detached(priority: .utility) {
+            do {
+                let asr = try await Self.makeManager()
+                self.lock.withLock { self.manager = asr; self.loadError = nil; self.loading = false }
+            } catch {
+                self.lock.withLock { self.loadError = error.localizedDescription; self.loading = false }
+            }
+        }
+    }
+
+    /// Blocks until the model is loaded. For the headless mode only.
+    public func prepareNow() throws {
+        if lock.withLock({ manager }) != nil { return }
+        let asr = try blocking { try await Self.makeManager() }
+        lock.withLock { manager = asr }
+    }
 
     public func transcribe(_ url: URL) throws -> [SpokenWord] {
-        try lock.withLock { try blocking { try await self.run(url) } }
+        let (asr, failure) = lock.withLock { (manager, loadError) }
+        guard let asr else {
+            prepare()
+            throw SpeechError.notReady(failure)
+        }
+        return try blocking {
+            var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
+            let result = try await asr.transcribe(url, decoderState: &state)
+            return Self.words(result.tokenTimings ?? [])
+        }
     }
 
-    private func run(_ url: URL) async throws -> [SpokenWord] {
-        let asr = try await loaded()
-        var state = TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
-        let result = try await asr.transcribe(url, decoderState: &state)
-        return Self.words(result.tokenTimings ?? [])
-    }
-
-    private func loaded() async throws -> AsrManager {
-        if let manager { return manager }
+    private static func makeManager() async throws -> AsrManager {
         let version = AsrModelVersion.v3
         let models = try await AsrModels.downloadAndLoad(version: version)
         let asr = AsrManager(config: ASRConfig(
             tdtConfig: TdtConfig(blankId: version.blankId), encoderHiddenSize: version.encoderHiddenSize))
         try await asr.loadModels(models)
-        manager = asr
         return asr
     }
 
@@ -902,13 +942,14 @@ Add `import DabberSpeech` to `Sources/Dabber/AppDelegate.swift`. In the `Recorde
         finalize: { try Delivery.finishAndDeliver($0, output: $1, speech: ParakeetSpeech.shared.transcribe) },
 ```
 
-and in the launch recovery pass `speech: ParakeetSpeech.shared.transcribe` to `Delivery.recover(...)` after `output: output`.
+and in the launch recovery pass `speech: ParakeetSpeech.shared.transcribe` to `Delivery.recover(...)` after `output: output`. In `applicationDidFinishLaunching`, before the recovery task starts, call `ParakeetSpeech.shared.prepare()`: the first launch downloads and compiles the model in the background (about two minutes); recordings finished before that are delivered without a transcript and the menu says `Transcript failed: the speech model is still downloading`.
 
 - [ ] **Step 2: Headless**
 
 Add `import DabberSpeech` to `Sources/Dabber/Headless.swift`. Replace lines 277-279 with
 
 ```swift
+            try ParakeetSpeech.shared.prepareNow()
             let report = try Finalizer.run(stopped, speech: ParakeetSpeech.shared.transcribe)
             log.line("FINALIZED total=\(report.totalFrames) gaps=\(report.gaps.count) resampled=\(report.resampled.count)"
                 + (report.slidesError.map { " slidesError=\($0)" } ?? "")
@@ -920,6 +961,7 @@ Add a case to `dispatch`, before `default:`, for manual checks:
 ```swift
         case "--transcribe":
             guard args.count == 2 else { return 64 }
+            try ParakeetSpeech.shared.prepareNow()
             let words = try ParakeetSpeech.shared.transcribe(URL(fileURLWithPath: args[1]))
             for line in Transcript.lines(words, speaker: Transcript.me) {
                 log.line("\(line.startMillis)\t\(line.endMillis)\t\(line.text)")
