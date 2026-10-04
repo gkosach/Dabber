@@ -158,4 +158,70 @@ struct ParakeetSpeechTests {
         #expect(await loads(failingWith: Boom()) == 3)
         #expect(await loads(failingWith: URLError(.notConnectedToInternet)) == 10)
     }
+
+    /// A model load that runs until `open` is set, then fails or gives an AsrManager without models (no model runs).
+    private final class Gate: @unchecked Sendable {
+        var open = false
+        func load(failing: Bool) async throws -> AsrManager {
+            while !open { try await Task.sleep(for: .milliseconds(1)) }
+            if failing { throw Boom() }
+            return AsrManager()
+        }
+    }
+
+    private func withTempDir(_ body: (URL) async throws -> Void) async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-speech-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await body(dir)
+    }
+
+    private func settle(_ speech: ParakeetSpeech) async {
+        while speech.loadState().busy { try? await Task.sleep(for: .milliseconds(1)) }
+    }
+
+    @Test(arguments: [false, true])
+    func theLoadMarkerIsThereWhileTheModelLoads(failing: Bool) async throws {
+        try await withTempDir { dir in
+            let gate = Gate()
+            let speech = ParakeetSpeech(load: { try await gate.load(failing: failing) })
+            let marker = ParakeetSpeech.loadMarker(in: dir)
+            speech.markLoads(in: dir)
+            speech.prepare()
+            #expect(FileManager.default.fileExists(atPath: marker.path))
+            gate.open = true
+            await settle(speech)
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+        }
+    }
+
+    @Test func aNormalQuitDuringALoadRemovesTheMarker() async throws {
+        try await withTempDir { dir in
+            let gate = Gate()
+            let speech = ParakeetSpeech(load: { try await gate.load(failing: true) })
+            let marker = ParakeetSpeech.loadMarker(in: dir)
+            speech.markLoads(in: dir)
+            speech.prepare()
+            #expect(FileManager.default.fileExists(atPath: marker.path))
+            speech.quitting()
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+            gate.open = true
+            await settle(speech)
+            speech.prepare()
+            #expect(!FileManager.default.fileExists(atPath: marker.path))
+            await settle(speech)
+        }
+    }
+
+    @Test func withoutMarkLoadsNoMarkerIsWritten() async throws {
+        try await withTempDir { dir in
+            let gate = Gate()
+            let speech = ParakeetSpeech(load: { try await gate.load(failing: true) })
+            speech.prepare()
+            let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+            #expect(files.isEmpty)
+            gate.open = true
+            await settle(speech)
+        }
+    }
 }

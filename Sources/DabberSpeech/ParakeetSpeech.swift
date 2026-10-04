@@ -33,6 +33,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
     private var loadError: String?
     private var failures = 0
     private var networkFailures = 0
+    private var markerDir: URL?
     private static let maxFailures = 3
     private static let maxNetworkFailures = 10
 
@@ -50,18 +51,52 @@ public final class ParakeetSpeech: @unchecked Sendable {
             else { return false }
             loading = true
             loadError = nil
+            if let markerDir {
+                try? FileManager.default.createDirectory(at: markerDir, withIntermediateDirectories: true)
+                FileManager.default.createFile(atPath: Self.loadMarker(in: markerDir).path, contents: nil)
+            }
             return true
         }
         guard start else { return }
         Task.detached(priority: .utility) {
             let result: Result<AsrManager, any Error>
             do { result = .success(try await self.load()) } catch { result = .failure(error) }
-            self.lock.withLock { self.record(result); self.loading = false }
+            self.lock.withLock {
+                self.record(result)
+                self.loading = false
+                self.removeMarker()
+            }
         }
     }
 
-    /// Blocks until the model is loaded. For the headless mode only: it ignores `loading` and the failure cap,
-    /// so it loads even while `prepare()` is loading or after three failures.
+    /// A crash in CoreML while the model loads kills the whole app, and the next launch would load it again and crash
+    /// again. So, once the app calls this, `prepare()` keeps a marker file in `dir` while a load runs. A marker found
+    /// at launch means the last load never finished. The headless mode does not call this.
+    public func markLoads(in dir: URL) {
+        lock.withLock { markerDir = dir }
+    }
+
+    public static func loadMarker(in dir: URL) -> URL {
+        dir.appendingPathComponent("loading-model")
+    }
+
+    /// A normal quit may cut a load short. That is not a crash, so the marker goes, and later loads leave none.
+    public func quitting() {
+        lock.withLock {
+            removeMarker()
+            markerDir = nil
+        }
+    }
+
+    /// The caller holds the lock.
+    private func removeMarker() {
+        guard let markerDir else { return }
+        try? FileManager.default.removeItem(at: Self.loadMarker(in: markerDir))
+    }
+
+    /// Blocks until the model is loaded. For the headless mode only: it ignores `loading` and both failure caps,
+    /// so it loads even while `prepare()` is loading, after three failures or after ten network failures.
+    /// It leaves no load marker.
     public func prepareNow() throws {
         if lock.withLock({ manager }) != nil { return }
         let result = Result { try blocking { try await self.load() } }
