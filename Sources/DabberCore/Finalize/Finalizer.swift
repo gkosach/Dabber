@@ -10,12 +10,13 @@ public enum Finalizer {
         let base: String
         let channels: Int
         let backup: Bool
+        let speaker: String
         let reader: TimelineReader
         let plans: [FinalizePlan]
     }
 
     @discardableResult
-    public static func run(_ dir: URL) throws -> FinalizeReport {
+    public static func run(_ dir: URL, speech: SpeechToText? = nil) throws -> FinalizeReport {
         var manifest = try SessionManifest.load(from: dir)
         var tracks: [Track] = []
         var rendered: [String] = []
@@ -46,6 +47,7 @@ public enum Finalizer {
             let placements = Timeline.place(plans.map(\.segment), sessionStartNanos: manifest.sessionStartNanos)
             tracks.append(Track(
                 base: source.trackBase, channels: source.channels, backup: source.backup == true,
+                speaker: source.kind == .mic ? Transcript.me : Transcript.others,
                 reader: TimelineReader(placements: placements, sources: sources, channels: source.channels),
                 plans: plans))
         }
@@ -66,6 +68,22 @@ public enum Finalizer {
         }
         for writer in writers { try writer.closeAndVerify() }
         try mix.closeAndVerify()
+        var cues: [SubtitleCue] = []
+        var transcriptError: String?
+        if total > 0, let speech {
+            do {
+                let lines = try transcribe(tracks, dir: dir, speech: speech)
+                if !lines.isEmpty {
+                    try Transcript.text(lines, marks: manifest.marks)
+                        .write(to: dir.appendingPathComponent(Transcript.textFile), atomically: true, encoding: .utf8)
+                    try Transcript.srt(lines)
+                        .write(to: dir.appendingPathComponent(Transcript.srtFile), atomically: true, encoding: .utf8)
+                    cues = Subtitles.cues(lines)
+                }
+            } catch {
+                transcriptError = "\(error)"
+            }
+        }
         if total > 0 {
             let millis = total * 1000 / Timeline.rate
             var chapters: [Chapter] = []
@@ -76,7 +94,9 @@ public enum Finalizer {
                 for writer in writers { try ChapterWriter.write(chapters, into: writer.url) }
             }
             try ChapterWriter.write(chapters, title: manifest.name, into: mix.url)
-            slidesError = slideshow(manifest, dir: dir, chapters: chapters)
+            let video = slideshow(manifest, dir: dir, chapters: chapters, subtitles: cues)
+            slidesError = video.slides
+            transcriptError = transcriptError ?? video.subtitles
         }
         unreadable += cafs.filter(\.damaged).map(\.url.lastPathComponent)
         var gaps: [GapRecord] = []
@@ -91,7 +111,8 @@ public enum Finalizer {
         }
         let report = FinalizeReport(
             totalFrames: total, gaps: gaps, driftMillis: drift, resampled: resampled, slidesError: slidesError,
-            unreadable: unreadable.isEmpty ? nil : unreadable)
+            unreadable: unreadable.isEmpty ? nil : unreadable,
+            transcriptError: transcriptError)
         manifest.finalize = report
         try manifest.save(to: dir)
         for name in rendered where !unreadable.contains(name) {
@@ -103,24 +124,40 @@ public enum Finalizer {
         return report
     }
 
-    private static func slideshow(_ manifest: SessionManifest, dir: URL, chapters: [Chapter]) -> String? {
+    static func slideshow(
+        _ manifest: SessionManifest, dir: URL, chapters: [Chapter], subtitles: [SubtitleCue]
+    ) -> (slides: String?, subtitles: String?) {
         let slides = manifest.frames
             .map { Slide(offsetNanos: $0.offsetNanos, url: dir.appendingPathComponent($0.file)) }
             .filter { FileManager.default.fileExists(atPath: $0.url.path) }
-        guard !slides.isEmpty else { return nil }
+        guard !slides.isEmpty else { return (nil, nil) }
         let out = dir.appendingPathComponent(videoFile)
-        do {
-            try SlideshowWriter.write(
-                audio: dir.appendingPathComponent(mixFile), slides: slides, chapters: chapters, title: manifest.name, to: out)
-            return nil
-        } catch {
-            try? FileManager.default.removeItem(at: out)
-            return "\(error)"
+        func attempt(_ cues: [SubtitleCue]) -> String? {
+            do {
+                try SlideshowWriter.write(
+                    audio: dir.appendingPathComponent(mixFile), slides: slides, chapters: chapters, subtitles: cues,
+                    title: manifest.name, to: out)
+                return nil
+            } catch {
+                try? FileManager.default.removeItem(at: out)
+                return "\(error)"
+            }
         }
+        guard let failure = attempt(subtitles) else { return (nil, nil) }
+        guard !subtitles.isEmpty else { return (failure, nil) }
+        let retry = attempt([])
+        return retry == nil ? (nil, "subtitles dropped: \(failure)") : (retry, nil)
     }
 
-    public static func finish(_ dir: URL) throws -> URL {
-        try run(dir)
+    private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) throws -> [TranscriptLine] {
+        let heard = tracks.filter { !$0.reader.placements.isEmpty }
+        return Transcript.merge(try heard.map { track in
+            Transcript.lines(try speech(dir.appendingPathComponent(track.base + ".m4a")), speaker: track.speaker)
+        })
+    }
+
+    public static func finish(_ dir: URL, speech: SpeechToText? = nil) throws -> URL {
+        try run(dir, speech: speech)
         return try rename(dir)
     }
 
@@ -173,12 +210,12 @@ public enum Finalizer {
 
     @discardableResult
     public static func recoverAll(
-        dirs: [URL], onError: (URL, Error) -> Void = { _, _ in }, onReport: (URL, FinalizeReport) -> Void = { _, _ in }
+        dirs: [URL], speech: SpeechToText? = nil, onError: (URL, Error) -> Void = { _, _ in }, onReport: (URL, FinalizeReport) -> Void = { _, _ in }
     ) -> [URL] {
         var done: [URL] = []
         for dir in dirs where needsRecovery(dir) {
             do {
-                let report = try run(dir)
+                let report = try run(dir, speech: speech)
                 let named = try rename(dir)
                 onReport(named, report)
                 done.append(named)

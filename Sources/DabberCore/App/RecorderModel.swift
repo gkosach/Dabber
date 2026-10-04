@@ -355,6 +355,7 @@ public final class RecorderModel {
     nonisolated static func problems(_ report: FinalizeReport) -> [String] {
         (report.slidesError.map { ["Slides video failed: \($0)"] } ?? [])
             + (report.unreadable.map { ["Could not read: \($0.joined(separator: ", "))"] } ?? [])
+            + (report.transcriptError.map { ["Transcript failed: \($0)"] } ?? [])
     }
 
     public func recoveryFailed(_ dir: URL, _ error: any Error) {

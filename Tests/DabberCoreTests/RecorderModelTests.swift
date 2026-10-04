@@ -1366,3 +1366,8 @@ private func absentAirPodsModel(_ e: FakeEngine) async -> RecorderModel {
     m.menuClosed()
     #expect(!m.menuOpen)
 }
+
+@MainActor @Test func aTranscriptFailureIsAProblem() {
+    let report = FinalizeReport(totalFrames: 1, gaps: [], driftMillis: [:], resampled: [], transcriptError: "no model")
+    #expect(RecorderModel.problems(report) == ["Transcript failed: no model"])
+}

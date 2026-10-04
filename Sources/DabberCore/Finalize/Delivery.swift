@@ -45,9 +45,9 @@ public enum Delivery {
     public static let partialSuffix = ".partial"
     private static let lock = NSLock()
 
-    public static func finishAndDeliver(_ dir: URL, output: URL, mover: Mover = .live) throws -> URL {
+    public static func finishAndDeliver(_ dir: URL, output: URL, mover: Mover = .live, speech: SpeechToText? = nil) throws -> URL {
         try lock.withLock {
-            let done = try Finalizer.finish(dir)
+            let done = try Finalizer.finish(dir, speech: speech)
             let moved: URL
             do {
                 moved = try deliver(done, into: output, mover: mover)
@@ -63,10 +63,11 @@ public enum Delivery {
 
     public static func recover(
         _ dirs: [URL], work: URL, output: URL, mover: Mover = .live,
+        speech: SpeechToText? = nil,
         onError: (URL, any Error) -> Void = { _, _ in }, onReport: (URL, FinalizeReport) -> Void = { _, _ in }
     ) -> String? {
         lock.withLock {
-            Finalizer.recoverAll(dirs: dirs, onError: onError, onReport: onReport)
+            Finalizer.recoverAll(dirs: dirs, speech: speech, onError: onError, onReport: onReport)
             return deliverPending(from: work, to: output, mover: mover)
         }
     }

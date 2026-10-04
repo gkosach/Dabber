@@ -590,9 +590,9 @@ extension FinalizerTests {
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
         try FileManager.default.moveItem(at: try makeSession(), to: work.appendingPathComponent("crashed"))
-        let failure = Delivery.recover(Finalizer.sessionFolders(root: work), work: work, output: out) { dir, error in
+        let failure = Delivery.recover(Finalizer.sessionFolders(root: work), work: work, output: out, onError: { dir, error in
             Issue.record("\(dir.lastPathComponent): \(error)")
-        }
+        })
         #expect(failure == nil)
         let name = SessionNaming.sessionName(startedAt, title: "")
         #expect(try FileManager.default.contentsOfDirectory(atPath: out.path) == [name])
@@ -820,5 +820,62 @@ extension FinalizerTests {
         #expect(try Finalizer.run(dir).totalFrames == 0)
         let names = Set(try FileManager.default.contentsOfDirectory(atPath: dir.path))
         #expect(names == ["frames", "mic - AirPods.m4a", "mix.m4a", "session.json"])
+    }
+}
+
+extension FinalizerTests {
+    private final class Asked: @unchecked Sendable {
+        var names: [String] = []
+    }
+
+    @Test func finalizerTranscribesEachTrackWithItsSpeaker() throws {
+        let dir = try makeSession()
+        let asked = Asked()
+        let report = try Finalizer.run(dir, speech: { url in
+            asked.names.append(url.lastPathComponent)
+            return url.lastPathComponent.hasPrefix("mic")
+                ? [SpokenWord(startMillis: 1_000, endMillis: 1_400, text: "Привет")]
+                : [SpokenWord(startMillis: 100, endMillis: 600, text: "Начнём")]
+        })
+        #expect(asked.names.sorted() == ["computer audio.m4a", "mic - A.m4a"])
+        #expect(report.transcriptError == nil)
+        let text = try String(contentsOf: dir.appendingPathComponent(Transcript.textFile), encoding: .utf8)
+        #expect(text == "[00:00:00] Собеседники: Начнём\n[00:00:01] Я: Привет\n")
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.srtFile).path))
+    }
+
+    @Test func aTranscriptionFailureKeepsTheRecordingAndIsReported() throws {
+        struct Boom: Error, CustomStringConvertible { var description: String { "no model" } }
+        let dir = try makeSession()
+        let report = try Finalizer.run(dir, speech: { _ in throw Boom() })
+        #expect(report.transcriptError == "no model")
+        #expect(try AVAudioFile(forReading: dir.appendingPathComponent("mix.m4a")).length == 144_000)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+    }
+
+    @Test func withoutSpeechNothingIsTranscribed() throws {
+        let dir = try makeSession()
+        let report = try Finalizer.run(dir)
+        #expect(report.transcriptError == nil)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+    }
+
+    @Test func aBrokenSubtitleTrackIsDroppedAndTheVideoKept() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        let frame = try slide(dir, atSeconds: 0, screen())
+        var manifest = SessionManifest(appVersion: "t", startedAt: startedAt, sessionStartNanos: 1)
+        manifest.frames = [FrameRecord(offsetNanos: frame.offsetNanos, file: frame.url.lastPathComponent)]
+        let result = Finalizer.slideshow(manifest, dir: dir, chapters: [], subtitles: [
+            SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+            SubtitleCue(startMillis: 1_000, endMillis: 1_500, text: "Я: Два"),
+        ])
+        #expect(result.slides == nil)
+        #expect(result.subtitles?.hasPrefix("subtitles dropped: ") == true)
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
+        #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).isEmpty)
     }
 }
