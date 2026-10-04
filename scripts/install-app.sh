@@ -8,9 +8,20 @@ if [ -e "$DEST" ] && [ "$(plutil -extract CFBundleIdentifier raw "$DEST/Contents
   exit 1
 fi
 scripts/build-app.sh
-if pgrep -f "$DEST/Contents/MacOS/Dabber" >/dev/null; then
-  osascript -e "tell application id \"$ID\" to quit"
-  for _ in {1..40}; do pgrep -f "$DEST/Contents/MacOS/Dabber" >/dev/null || break; sleep 0.5; done
+running() { pgrep -f "$DEST/Contents/MacOS/Dabber" >/dev/null; }
+if running; then
+  # Quitting waits for recordings that are still finishing and their transcripts; it can take minutes.
+  osascript -e "ignoring application responses" -e "tell application id \"$ID\" to quit" -e "end ignoring"
+  echo "waiting for Dabber to quit: it finishes recordings first (up to 10 minutes)"
+  for i in {1..600}; do
+    running || break
+    if (( i % 30 == 0 )); then echo "still waiting for Dabber to quit ($((i / 60)) min $((i % 60)) s)"; fi
+    sleep 1
+  done
+  if running; then
+    echo "refusing: Dabber is still running after 10 minutes; quit it and run this again"
+    exit 1
+  fi
 fi
 rm -rf "$DEST"
 ditto build/Dabber.app "$DEST"
