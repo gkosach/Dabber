@@ -848,9 +848,21 @@ extension FinalizerTests {
         struct Boom: Error, CustomStringConvertible { var description: String { "no model" } }
         let dir = try makeSession()
         let report = try Finalizer.run(dir, speech: { _ in throw Boom() })
-        #expect(report.transcriptError == "no model")
+        #expect(report.transcriptError == "mic - A: no model; computer audio: no model")
         #expect(try AVAudioFile(forReading: dir.appendingPathComponent("mix.m4a")).length == 144_000)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
+    }
+
+    @Test func oneFailingTrackKeepsTheTextOfTheOthers() throws {
+        struct Boom: Error, CustomStringConvertible { var description: String { "decoder failed" } }
+        let dir = try makeSession()
+        let report = try Finalizer.run(dir, speech: { url in
+            guard url.lastPathComponent.hasPrefix("mic") else { throw Boom() }
+            return [SpokenWord(startMillis: 1_000, endMillis: 1_400, text: "Привет")]
+        })
+        #expect(report.transcriptError == "computer audio: decoder failed")
+        let text = try String(contentsOf: dir.appendingPathComponent(Transcript.textFile), encoding: .utf8)
+        #expect(text == "[00:00:01] Я: Привет\n")
     }
 
     @Test func aTranscriptionThatNeverFinishedIsSkippedOnTheNextRun() throws {

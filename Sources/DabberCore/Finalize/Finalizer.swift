@@ -86,7 +86,8 @@ public enum Finalizer {
                 do {
                     try Data().write(to: marker)
                     defer { try? FileManager.default.removeItem(at: marker) }
-                    let lines = try transcribe(tracks, dir: dir, speech: speech)
+                    let (lines, failed) = transcribe(tracks, dir: dir, speech: speech)
+                    if !failed.isEmpty { transcriptError = failed.joined(separator: "; ") }
                     if !lines.isEmpty {
                         try Transcript.text(lines, marks: manifest.marks)
                             .write(to: dir.appendingPathComponent(Transcript.textFile), atomically: true, encoding: .utf8)
@@ -176,11 +177,18 @@ public enum Finalizer {
         return String(text.prefix(200))
     }
 
-    private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) throws -> [TranscriptLine] {
-        let heard = tracks.filter { !$0.reader.placements.isEmpty }
-        return Transcript.merge(try heard.map { track in
-            Transcript.lines(try speech(dir.appendingPathComponent(track.base + ".m4a")), speaker: track.speaker)
-        })
+    /// A failed track does not cost the others their text; it is named in `failed` with its error.
+    private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) -> (lines: [TranscriptLine], failed: [String]) {
+        var lines: [[TranscriptLine]] = []
+        var failed: [String] = []
+        for track in tracks where !track.reader.placements.isEmpty {
+            do {
+                lines.append(Transcript.lines(try speech(dir.appendingPathComponent(track.base + ".m4a")), speaker: track.speaker))
+            } catch {
+                failed.append("\(track.base): \(brief(error))")
+            }
+        }
+        return (Transcript.merge(lines), failed)
     }
 
     public static func finish(_ dir: URL, speech: SpeechToText? = nil) throws -> URL {
