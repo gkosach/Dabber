@@ -26,10 +26,14 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
     }
 
-    private let load: @Sendable () async throws -> AsrManager
+    /// The loader reports what it is doing; the report may come from any thread.
+    public typealias Report = @Sendable (SpeechModelStatus) -> Void
+
+    private let load: @Sendable (@escaping Report) async throws -> AsrManager
     private let lock = NSLock()
     private var manager: AsrManager?
     private var loading = false
+    private var progress = SpeechModelStatus.preparing
     private var loadError: String?
     private var failures = 0
     private var networkFailures = 0
@@ -37,7 +41,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
     private static let maxFailures = 3
     private static let maxNetworkFailures = 10
 
-    init(load: @escaping @Sendable () async throws -> AsrManager = makeManager) {
+    init(load: @escaping @Sendable (@escaping Report) async throws -> AsrManager = makeManager) {
         self.load = load
     }
 
@@ -47,9 +51,9 @@ public final class ParakeetSpeech: @unchecked Sendable {
     /// finalize download the 470 MB model again.
     public func prepare() {
         let start = lock.withLock {
-            guard manager == nil, !loading, failures < Self.maxFailures, networkFailures < Self.maxNetworkFailures
-            else { return false }
+            guard manager == nil, !loading, canRetry else { return false }
             loading = true
+            progress = .preparing
             loadError = nil
             if let markerDir {
                 try? FileManager.default.createDirectory(at: markerDir, withIntermediateDirectories: true)
@@ -60,13 +64,31 @@ public final class ParakeetSpeech: @unchecked Sendable {
         guard start else { return }
         Task.detached(priority: .utility) {
             let result: Result<AsrManager, any Error>
-            do { result = .success(try await self.load()) } catch { result = .failure(error) }
+            do { result = .success(try await self.load(self.report)) } catch { result = .failure(error) }
             self.lock.withLock {
                 self.record(result)
                 self.loading = false
                 self.removeMarker()
             }
         }
+    }
+
+    /// For the menu. Read under the lock, so any thread may call it.
+    public var status: SpeechModelStatus {
+        lock.withLock {
+            if manager != nil { return .ready }
+            if loading { return progress }
+            if let loadError { return .failed(loadError, gaveUp: !canRetry) }
+            return .idle
+        }
+    }
+
+    /// The caller holds the lock.
+    private var canRetry: Bool { failures < Self.maxFailures && networkFailures < Self.maxNetworkFailures }
+
+    /// Called on FluidAudio's threads while a load runs: it only stores the status.
+    private func report(_ status: SpeechModelStatus) {
+        lock.withLock { progress = status }
     }
 
     /// A crash in CoreML while the model loads kills the whole app, and the next launch would load it again and crash
@@ -99,7 +121,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
     /// It leaves no load marker.
     public func prepareNow() throws {
         if lock.withLock({ manager }) != nil { return }
-        let result = Result { try blocking { try await self.load() } }
+        let result = Result { try blocking { try await self.load(self.report) } }
         lock.withLock { record(result) }
         _ = try result.get()
     }
@@ -194,13 +216,26 @@ public final class ParakeetSpeech: @unchecked Sendable {
             || ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.domain == NSURLErrorDomain
     }
 
-    @Sendable static func makeManager() async throws -> AsrManager {
+    @Sendable static func makeManager(report: @escaping Report) async throws -> AsrManager {
         let version = AsrModelVersion.v3
-        let models = try await AsrModels.downloadAndLoad(version: version)
+        let cached = AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: version), version: version)
+        report(cached ? .preparing : .downloading(nil))
+        let models = try await AsrModels.downloadAndLoad(version: version, progressHandler: { report(status(of: $0)) })
         let asr = AsrManager(config: ASRConfig(
             tdtConfig: TdtConfig(blankId: version.blankId), encoderHiddenSize: version.encoderHiddenSize))
         try await asr.loadModels(models)
         return asr
+    }
+
+    /// FluidAudio fills the first half of `fractionCompleted` with the download of the model repo and the second
+    /// half with compiling, so the download's own fraction is twice the reported one. Models already in the cache
+    /// are reported as a download of no files.
+    static func status(of progress: DownloadProgress) -> SpeechModelStatus {
+        switch progress.phase {
+        case .listing: .downloading(nil)
+        case .downloading(_, let total) where total > 0: .downloading(min(1, progress.fractionCompleted * 2))
+        case .downloading, .compiling: .preparing
+        }
     }
 
     /// FluidAudio's `WordTiming` has no confidence, so the tokens are split into words by the same rule as

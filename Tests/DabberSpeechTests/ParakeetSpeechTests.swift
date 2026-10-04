@@ -146,7 +146,7 @@ struct ParakeetSpeechTests {
     /// Calls `prepare()` the way finalize does, many times, and waits for each background load to end.
     private func loads(failingWith error: any Error) async -> Int {
         let calls = Calls()
-        let speech = ParakeetSpeech(load: { calls.count += 1; throw error })
+        let speech = ParakeetSpeech(load: { _ in calls.count += 1; throw error })
         for _ in 0..<15 {
             speech.prepare()
             while speech.loadState().busy { try? await Task.sleep(for: .milliseconds(1)) }
@@ -184,7 +184,7 @@ struct ParakeetSpeechTests {
     func theLoadMarkerIsThereWhileTheModelLoads(failing: Bool) async throws {
         try await withTempDir { dir in
             let gate = Gate()
-            let speech = ParakeetSpeech(load: { try await gate.load(failing: failing) })
+            let speech = ParakeetSpeech(load: { _ in try await gate.load(failing: failing) })
             let marker = ParakeetSpeech.loadMarker(in: dir)
             speech.markLoads(in: dir)
             speech.prepare()
@@ -198,7 +198,7 @@ struct ParakeetSpeechTests {
     @Test func aNormalQuitDuringALoadRemovesTheMarker() async throws {
         try await withTempDir { dir in
             let gate = Gate()
-            let speech = ParakeetSpeech(load: { try await gate.load(failing: true) })
+            let speech = ParakeetSpeech(load: { _ in try await gate.load(failing: true) })
             let marker = ParakeetSpeech.loadMarker(in: dir)
             speech.markLoads(in: dir)
             speech.prepare()
@@ -216,12 +216,92 @@ struct ParakeetSpeechTests {
     @Test func withoutMarkLoadsNoMarkerIsWritten() async throws {
         try await withTempDir { dir in
             let gate = Gate()
-            let speech = ParakeetSpeech(load: { try await gate.load(failing: true) })
+            let speech = ParakeetSpeech(load: { _ in try await gate.load(failing: true) })
             speech.prepare()
             let files = try FileManager.default.contentsOfDirectory(atPath: dir.path)
             #expect(files.isEmpty)
             gate.open = true
             await settle(speech)
         }
+    }
+
+    /// Polls the status for up to two seconds.
+    private func eventually(_ speech: ParakeetSpeech, is expected: SpeechModelStatus) async -> Bool {
+        for _ in 0..<2_000 {
+            if speech.status == expected { return true }
+            try? await Task.sleep(for: .milliseconds(1))
+        }
+        return false
+    }
+
+    private final class Steps: @unchecked Sendable {
+        var step = 0
+        func wait(for n: Int) async throws {
+            while step < n { try await Task.sleep(for: .milliseconds(1)) }
+        }
+    }
+
+    @Test func theStatusFollowsTheLoadFromDownloadToReady() async {
+        let steps = Steps()
+        let speech = ParakeetSpeech(load: { report in
+            report(.downloading(0.4))
+            try await steps.wait(for: 1)
+            report(.preparing)
+            try await steps.wait(for: 2)
+            return AsrManager()
+        })
+        #expect(speech.status == .idle)
+        speech.prepare()
+        #expect(await eventually(speech, is: .downloading(0.4)))
+        steps.step = 1
+        #expect(await eventually(speech, is: .preparing))
+        steps.step = 2
+        #expect(await eventually(speech, is: .ready))
+    }
+
+    private struct Broken: LocalizedError {
+        var errorDescription: String? { "broken model" }
+    }
+
+    @Test func aFailedLoadGivesItsReasonAndSaysWhenTheRetriesAreUsedUp() async {
+        let speech = ParakeetSpeech(load: { _ in throw Broken() })
+        speech.prepare()
+        await settle(speech)
+        #expect(speech.status == .failed("broken model", gaveUp: false))
+        for _ in 0..<2 {
+            speech.prepare()
+            await settle(speech)
+        }
+        #expect(speech.status == .failed("broken model", gaveUp: true))
+    }
+
+    @Test func aRetryShowsTheLoadAgainInsteadOfTheLastFailure() async {
+        let steps = Steps()
+        let speech = ParakeetSpeech(load: { _ in
+            try await steps.wait(for: 1)
+            throw Broken()
+        })
+        steps.step = 1
+        speech.prepare()
+        await settle(speech)
+        steps.step = 0
+        speech.prepare()
+        #expect(speech.status == .preparing)
+        steps.step = 1
+        await settle(speech)
+    }
+
+    @Test func downloadProgressBecomesTheModelStatus() {
+        func p(_ fraction: Double, _ phase: DownloadPhase) -> DownloadProgress {
+            DownloadProgress(fractionCompleted: fraction, phase: phase)
+        }
+        #expect(ParakeetSpeech.status(of: p(0, .listing)) == .downloading(nil))
+        // A repo download fills the first half of FluidAudio's fraction, compiling the second.
+        #expect(ParakeetSpeech.status(of: p(0.2, .downloading(completedFiles: 3, totalFiles: 12))) == .downloading(0.4))
+        #expect(ParakeetSpeech.status(of: p(0.5, .downloading(completedFiles: 12, totalFiles: 12))) == .downloading(1))
+        #expect(ParakeetSpeech.status(of: p(0.9, .downloading(completedFiles: 12, totalFiles: 12))) == .downloading(1))
+        // Files already in the cache: FluidAudio reports a download of no files.
+        #expect(ParakeetSpeech.status(of: p(0.5, .downloading(completedFiles: 0, totalFiles: 0))) == .preparing)
+        #expect(ParakeetSpeech.status(of: p(0.75, .compiling(modelName: "Encoder.mlmodelc"))) == .preparing)
     }
 }
