@@ -863,9 +863,12 @@ extension FinalizerTests {
         #expect(report.transcriptError == "mic - A: mic broke; computer audio: mac broke")
         let long = try makeSession()
         let cut = try Finalizer.run(long, speech: { url in
-            throw Boom(description: url.lastPathComponent + String(repeating: "x", count: 150))
+            throw Boom(description: url.lastPathComponent + String(repeating: "x", count: 250))
         })
-        #expect(cut.transcriptError?.count == 200)
+        let parts = try #require(cut.transcriptError).components(separatedBy: "; ")
+        try #require(parts.count == 2)
+        #expect(parts[0].hasPrefix("mic - A: mic - A.m4axxx") && parts[0].count == "mic - A: ".count + 100)
+        #expect(parts[1].hasPrefix("computer audio: computer audio.m4axxx") && parts[1].count == "computer audio: ".count + 100)
     }
 
     @Test func oneFailingTrackKeepsTheTextOfTheOthers() throws {

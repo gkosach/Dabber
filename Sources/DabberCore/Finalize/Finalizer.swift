@@ -180,7 +180,8 @@ public enum Finalizer {
     }
 
     /// A failed track does not cost the others their text. If every track failed the same way (the model is not
-    /// ready, say), `failure` is that error once; otherwise it names each failed track.
+    /// ready, say), `failure` is that error once; otherwise it names each failed track. The 200 characters of
+    /// error text are shared among the failed tracks, so every track name stays in the message.
     private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) -> (lines: [TranscriptLine], failure: String?) {
         let heard = tracks.filter { !$0.reader.placements.isEmpty }
         var lines: [[TranscriptLine]] = []
@@ -196,7 +197,8 @@ public enum Finalizer {
         if failed.count == heard.count, failed.allSatisfy({ $0.error == first.error }) {
             return (Transcript.merge(lines), first.error)
         }
-        return (Transcript.merge(lines), String(failed.map { "\($0.track): \($0.error)" }.joined(separator: "; ").prefix(200)))
+        let each = 200 / failed.count
+        return (Transcript.merge(lines), failed.map { "\($0.track): \($0.error.prefix(each))" }.joined(separator: "; "))
     }
 
     public static func finish(_ dir: URL, speech: SpeechToText? = nil) throws -> URL {
