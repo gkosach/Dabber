@@ -13,11 +13,13 @@ public final class ParakeetSpeech: @unchecked Sendable {
 
     public enum SpeechError: LocalizedError {
         case notReady(String?)
+        case downmix(String)
 
         public var errorDescription: String? {
             switch self {
             case .notReady(nil): "the speech model is not ready yet"
             case .notReady(let why?): "the speech model could not be loaded: \(why)"
+            case .downmix(let name): "could not prepare \(name) for transcription"
             }
         }
     }
@@ -92,7 +94,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
     static func monoCopy(of url: URL) throws -> URL? {
         let input = try AVAudioFile(forReading: url)
         guard input.fileFormat.channelCount > 1 else { return nil }
-        let fail = SpeechError.notReady("cannot downmix \(url.lastPathComponent)")
+        let fail = SpeechError.downmix(url.lastPathComponent)
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
         let block: AVAudioFrameCount = 48_000 * 10
         guard let converter = AVAudioConverter(from: input.processingFormat, to: format),
@@ -101,8 +103,8 @@ public final class ParakeetSpeech: @unchecked Sendable {
         else { throw fail }
         converter.downmix = true
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-mono-\(UUID().uuidString).caf")
-        let file = try AVAudioFile(forWriting: out, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         do {
+            let file = try AVAudioFile(forWriting: out, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
             var readError: Error?
             while true {
                 var convError: NSError?
@@ -120,6 +122,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
                 if outBuf.frameLength > 0 { try file.write(from: outBuf) }
                 if status == .endOfStream { break }
             }
+            file.close()
         } catch {
             try? FileManager.default.removeItem(at: out)
             throw error
