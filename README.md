@@ -213,7 +213,10 @@ off for recordings where this matters.
 After Stop, Dabber transcribes the recording on your Mac with the Parakeet speech model. Nothing leaves the Mac.
 Each source is transcribed on its own: microphones (the backup microphone too) are labelled «Я», Mac audio
 «Собеседники». Stereo Mac audio is mixed down to mono first. Lines the model is unsure about (mean word confidence
-below 0.7) are left out; this removes phrases the model invents from near-silence on a quiet microphone.
+below 0.6) are left out; this removes phrases the model invents from near-silence on a quiet microphone.
+
+When you use speakers instead of headphones, the microphone also hears Mac audio: words that repeat Mac audio are left
+out of «Я». A lone word, or Mac speech the model heard differently through the microphone, may still slip through.
 
 - `transcript.txt`: the text with times, speakers and your marks.
 - `transcript.srt`: subtitles for any player. Both files are written next to the recording.

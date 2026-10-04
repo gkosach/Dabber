@@ -3,8 +3,7 @@
 - **Transcript**: done on 2026-10-04 with Parakeet v3 through FluidAudio (see
   docs/superpowers/plans/2026-10-04-dabber-parakeet-subtitles.md). Open ideas:
   - split «Собеседники» by voice with FluidAudio diarization;
-  - drop mic text that is the other side heard through the speakers (no headphones);
-  - a short invented line can survive the 0.7 confidence filter (one 0.24 s "I've got" in a 24-minute silent mic
+  - a short invented line can survive the 0.6 confidence filter (one 0.24 s "I've got" in a 24-minute silent mic
     track); measure confidences of real short replies before adding a rule;
   - the backup mic overlaps the main mic for ~2.5 s after a handoff, so a few words may appear twice;
   - quitting right after a long recording waits for its transcription (~15 s per hour per track, not
