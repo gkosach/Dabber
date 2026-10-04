@@ -7,23 +7,37 @@ import Foundation
 /// in Cyrillic. The model (about 470 MB, kept in FluidAudio's cache in Application Support) is downloaded and compiled
 /// in the background by `prepare()`. `transcribe` never downloads the model itself: it runs inside finalize, which
 /// holds the delivery lock and makes quitting wait. If the model is not loaded, it starts the background load and
-/// throws at once, and the recording goes out without a transcript.
+/// throws at once, and the recording goes out without a transcript. A model that crashes the app turns speech off
+/// after two crashes (see `SpeechBreaker`).
 public final class ParakeetSpeech: @unchecked Sendable {
-    public static let shared = ParakeetSpeech()
+    public static let shared = ParakeetSpeech(defaults: .standard, build: build)
 
     public enum SpeechError: LocalizedError {
         case notReady(String?)
         case downmix(String)
+        case off
 
         public var errorDescription: String? {
             switch self {
             case .notReady(nil): "the speech model is not ready yet"
             case .notReady(let why?): "the speech model could not be loaded: \(why)"
             case .downmix(let name): "could not prepare \(name) for transcription"
+            case .off:
+                "transcription is off: the speech model did not finish twice; it is tried again after Dabber or macOS is updated"
             }
         }
     }
 
+    /// Changes when Dabber is reinstalled (the executable gets a new date) or macOS is updated. The app version
+    /// alone is not enough: it stays the same across builds from source.
+    static var build: String {
+        let date = Bundle.main.executableURL
+            .flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+        return "\(AppPaths.version) \(date?.timeIntervalSince1970 ?? 0) \(ProcessInfo.processInfo.operatingSystemVersionString)"
+    }
+
+    private let breaker: SpeechBreaker
+    private let load: @Sendable () async throws -> AsrManager
     private let lock = NSLock()
     private var manager: AsrManager?
     private var loading = false
@@ -31,28 +45,38 @@ public final class ParakeetSpeech: @unchecked Sendable {
     private var failures = 0
     private static let maxFailures = 3
 
+    init(defaults: UserDefaults, build: String, load: @escaping @Sendable () async throws -> AsrManager = makeManager) {
+        breaker = SpeechBreaker(defaults: defaults, build: build)
+        self.load = load
+    }
+
     /// Starts the download and load in the background. Calling it again is free; after a failure it retries,
     /// but gives up after three failures in one app run so a broken model is not downloaded again on every finalize.
     public func prepare() {
         let start = lock.withLock {
-            guard manager == nil, !loading, failures < Self.maxFailures else { return false }
+            guard !breaker.tripped, manager == nil, !loading, failures < Self.maxFailures else { return false }
             loading = true
             loadError = nil
             return true
         }
         guard start else { return }
         Task.detached(priority: .utility) {
+            self.breaker.begin()
             let result: Result<AsrManager, any Error>
-            do { result = .success(try await Self.makeManager()) } catch { result = .failure(error) }
+            do { result = .success(try await self.load()) } catch { result = .failure(error) }
+            self.breaker.end(clearing: false)
             self.lock.withLock { self.record(result); self.loading = false }
         }
     }
 
     /// Blocks until the model is loaded. For the headless mode only: it ignores `loading` and the failure cap,
-    /// so it loads even while `prepare()` is loading or after three failures.
+    /// so it loads even while `prepare()` is loading or after three failures. It does not ignore the crash breaker.
     public func prepareNow() throws {
         if lock.withLock({ manager }) != nil { return }
-        let result = Result { try blocking { try await Self.makeManager() } }
+        guard !breaker.tripped else { throw SpeechError.off }
+        breaker.begin()
+        let result = Result { try blocking { try await self.load() } }
+        breaker.end(clearing: false)
         lock.withLock { record(result) }
         _ = try result.get()
     }
@@ -85,12 +109,20 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
     }
 
+    /// A normal quit may cut a model load short. That is not a crash, so it is not counted.
+    public func quitting() {
+        breaker.quitting()
+    }
+
     public func transcribe(_ url: URL) throws -> [SpokenWord] {
+        guard !breaker.tripped else { throw SpeechError.off }
         let (asr, failure) = lock.withLock { (manager, loadError) }
         guard let asr else {
             prepare()
             throw SpeechError.notReady(failure)
         }
+        breaker.begin()
+        defer { breaker.end(clearing: true) }
         let mono = try Self.monoCopy(of: url)
         defer { if let mono { try? FileManager.default.removeItem(at: mono) } }
         return try blocking {
@@ -119,7 +151,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
             || ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.domain == NSURLErrorDomain
     }
 
-    private static func makeManager() async throws -> AsrManager {
+    @Sendable static func makeManager() async throws -> AsrManager {
         let version = AsrModelVersion.v3
         let models = try await AsrModels.downloadAndLoad(version: version)
         let asr = AsrManager(config: ASRConfig(
