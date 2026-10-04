@@ -101,7 +101,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
             await Self.model.prepareToQuit()
-            ParakeetSpeech.shared.quitting()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater
