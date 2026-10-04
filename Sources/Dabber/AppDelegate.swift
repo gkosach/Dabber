@@ -10,6 +10,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let legacyKey = "legacySessionsAdopted"
     private static let slidesKey = "recordSlides"
     private static let backupKey = "backupMic"
+    private static let transcribeKey = "transcribe"
+
+    /// On unless switched off in the menu. Read where it is used, so a change applies to the next finalize.
+    nonisolated private static var transcribeOn: Bool {
+        UserDefaults.standard.object(forKey: transcribeKey) as? Bool ?? true
+    }
+    nonisolated private static var speech: SpeechToText? { transcribeOn ? ParakeetSpeech.shared.transcribe : nil }
 
     @MainActor static let model = RecorderModel(
         engine: SessionRecorder(root: AppPaths.workRoot, appVersion: AppPaths.version),
@@ -19,7 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         names: UserDefaults.standard.dictionary(forKey: namesKey) as? [String: String] ?? [:],
         persist: { UserDefaults.standard.set(Array($0).sorted(), forKey: enabledKey) },
         persistNames: { UserDefaults.standard.set($0, forKey: namesKey) },
-        finalize: { try Delivery.finishAndDeliver($0, output: $1, speech: ParakeetSpeech.shared.transcribe) },
+        finalize: { try Delivery.finishAndDeliver($0, output: $1, speech: speech) },
         calendar: EventKitCalendar(),
         outputFolder: UserDefaults.standard.string(forKey: outputKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? AppPaths.recordingsRoot,
@@ -27,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         slides: SlideRecorder(grabber: LiveScreenGrabber()),
         slidesOn: UserDefaults.standard.bool(forKey: slidesKey),
         persistSlides: { UserDefaults.standard.set($0, forKey: slidesKey) },
+        transcribeOn: transcribeOn,
+        persistTranscribe: {
+            UserDefaults.standard.set($0, forKey: transcribeKey)
+            if $0 { ParakeetSpeech.shared.prepare() }
+        },
         hotkey: LiveMarkHotkey(),
         backupUID: RecorderModel.backupSetting(
             saved: UserDefaults.standard.string(forKey: backupKey), devices: (try? inputDevices()) ?? []),
@@ -61,13 +73,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            (try? Delivery.adoptUnfinished(from: AppPaths.recordingsRoot, into: work)) != nil {
             defaults.set(true, forKey: Self.legacyKey)
         }
-        ParakeetSpeech.shared.prepare()
+        if Self.transcribeOn { ParakeetSpeech.shared.prepare() }
         let pending = Finalizer.sessionFolders(root: work)
         Self.model.finishBeforeQuit(Task.detached(priority: .utility) {
             ParakeetSpeech.removeStaleTempFiles()
-            if pending.contains(where: Finalizer.needsRecovery) { await ParakeetSpeech.shared.waitIfCached(seconds: 60) }
+            let speech = Self.speech
+            if speech != nil, pending.contains(where: Finalizer.needsRecovery) {
+                await ParakeetSpeech.shared.waitIfCached(seconds: 60)
+            }
             let failure = Delivery.recover(
-                pending, work: work, output: output, speech: ParakeetSpeech.shared.transcribe,
+                pending, work: work, output: output, speech: speech,
                 onError: { dir, error in Task { @MainActor in Self.model.recoveryFailed(dir, error) } },
                 onReport: { dir, report in Task { @MainActor in Self.model.recovered(dir, report) } })
             await MainActor.run { Self.model.deliveryDone(failure: failure) }

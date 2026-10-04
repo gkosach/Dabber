@@ -85,6 +85,7 @@ public final class RecorderModel {
     public private(set) var title = ""
     public private(set) var outputFolder: URL
     public private(set) var slidesOn: Bool
+    public private(set) var transcribeOn: Bool
     public private(set) var menuOpen = false
     public private(set) var hotkeyAllowed: Bool?
     public private(set) var backupUID: String?
@@ -99,6 +100,7 @@ public final class RecorderModel {
     private let calendar: any CalendarSource
     private let slides: SlideRecorder?
     private let persistSlides: @Sendable (Bool) -> Void
+    private let persistTranscribe: @Sendable (Bool) -> Void
     private let hotkey: (any MarkHotkey)?
     private let persistBackup: @Sendable (String?) -> Void
     private var enabledIDs: Set<String>
@@ -132,6 +134,8 @@ public final class RecorderModel {
         slides: SlideRecorder? = nil,
         slidesOn: Bool = false,
         persistSlides: @escaping @Sendable (Bool) -> Void = { _ in },
+        transcribeOn: Bool = true,
+        persistTranscribe: @escaping @Sendable (Bool) -> Void = { _ in },
         hotkey: (any MarkHotkey)? = nil,
         backupUID: String? = nil,
         persistBackup: @escaping @Sendable (String?) -> Void = { _ in }
@@ -150,6 +154,8 @@ public final class RecorderModel {
         self.slides = slides
         self.slidesOn = slidesOn
         self.persistSlides = persistSlides
+        self.transcribeOn = transcribeOn
+        self.persistTranscribe = persistTranscribe
         self.hotkey = hotkey
         self.backupUID = backupUID
         self.persistBackup = persistBackup
@@ -217,6 +223,12 @@ public final class RecorderModel {
         guard !isRecording else { return }
         slidesOn.toggle()
         persistSlides(slidesOn)
+    }
+
+    /// Unlike slides, this may change during a recording: finalize reads the saved setting when it runs.
+    public func toggleTranscribe() {
+        transcribeOn.toggle()
+        persistTranscribe(transcribeOn)
     }
 
     public var backupChoices: [BackupChoice] {

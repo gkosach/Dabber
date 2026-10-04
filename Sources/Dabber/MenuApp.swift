@@ -95,6 +95,7 @@ struct RecordingSection: View {
             }
             Toggle("Record slides", isOn: Binding(get: { model.slidesOn }, set: { _ in model.toggleSlides() }))
                 .disabled(model.isRecording)
+            Toggle("Transcribe", isOn: Binding(get: { model.transcribeOn }, set: { _ in model.toggleTranscribe() }))
             if model.isRecording {
                 HStack {
                     Text("Name").font(.caption).foregroundStyle(.secondary)

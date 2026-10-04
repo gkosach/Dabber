@@ -904,6 +904,23 @@ private func slidesModel(
     #expect(saved == [true, false])
 }
 
+@MainActor @Test func transcribeSwitchIsSavedAndCanChangeWhileRecording() async {
+    let e = FakeEngine()
+    nonisolated(unsafe) var saved: [Bool] = []
+    let m = RecorderModel(
+        engine: e, catalog: FakeCatalog(devices: [airpods]), enabledIDs: ["computer", "ap"], persist: { _ in },
+        finalize: { dir, _ in dir }, transcribeOn: true, persistTranscribe: { saved.append($0) })
+    m.refreshDevices()
+    #expect(m.transcribeOn)
+    m.toggleTranscribe()
+    #expect(!m.transcribeOn)
+    await m.startStop()
+    m.toggleTranscribe()
+    #expect(m.transcribeOn)
+    await m.startStop()
+    #expect(saved == [false, true])
+}
+
 @MainActor @Test func recordingWithSlidesGrabsIntoTheEngineUntilStop() async {
     let e = FakeEngine()
     let (m, slides) = slidesModel(e, on: true)
