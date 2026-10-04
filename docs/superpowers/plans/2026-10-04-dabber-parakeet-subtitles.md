@@ -12,7 +12,7 @@
 - `fluidaudiocli transcribe` on a 24-minute meeting: 5.5 s warm, 116 s on first use (model download 469 MB + ANE compile). Russian quality judged good by the user.
 - No language hint is better for this user: with `--language ru` all English terms became Cyrillic («Байбит»); without it the output keeps `USDT`, `KYC`, `Earn`, `Binance`.
 - An `AVAssetWriterInput(mediaType: .subtitle)` with a `tx3g` format (`kCMMediaType_Subtitle` / `kCMSubtitleFormatType_3GText`), `languageCode = "rus"`, shows up in QuickTime's Subtitles menu (user confirmed). AVFoundation lists it as `["Russian", "Russian Forced"]`.
-- Gaps must be filled with empty samples, otherwise a cue stays on screen until the next one. A sample with (near) zero duration makes the whole write fail with `-16364`, so no sample may be shorter than 300 ms; short gaps are merged into the neighbouring cue.
+- Gaps must be filled with empty samples, otherwise a cue stays on screen until the next one. Only a sample of zero length, or one that overlaps the previous one, makes the whole write fail with `-16364`; very short samples are fine (1 ms and 50 ms samples write without error). The 300 ms minimum is for readability: no sample is shorter than that, and short gaps are merged into the neighbouring cue.
 
 **Test runs:** the user's Mac must stay responsive. Run only the suite you touched: `scripts/test.sh --filter <Suite>`. Run the full suite once, at the end (Task 8).
 

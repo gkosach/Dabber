@@ -42,7 +42,8 @@ Dabber is built from source on your Mac. There is no prebuilt download.
   audio and about 0.7 GB per hour per microphone, plus up to about 500 MB per hour for slides. A recording does not
   start with less than 2 GB free, and the menu warns when less than about 20 minutes of recording space is left.
   Finished files are much smaller (compressed AAC). The speech model takes about 470 MB. While a recording is
-  transcribed, temporary files take about 0.5 GB per hour of stereo audio.
+  transcribed, temporary files take about 0.5 GB per hour of stereo audio. If Dabber crashes during a transcription,
+  it removes these files at a later launch, once they are more than an hour old.
 
 ### Permissions the app asks for
 
@@ -123,8 +124,9 @@ it again.
    one finished last in Finder.
 
 If you quit Dabber during a recording or while recordings are still finishing, it finishes all of them first
-("Finalizing before quit…"). Finishing includes the transcript: once the speech model is loaded, it takes about
-15 seconds per hour of audio for each track.
+("Finalizing before quit…"). This includes recordings that Dabber finishes at launch after it was closed unexpectedly;
+for those it may first wait up to a minute for the speech model to load. Finishing includes the transcript: once the
+speech model is loaded, it takes about 15 seconds per hour of audio for each track.
 
 Each recording is a folder named `YYYY-MM-DD HH-MM <name>` (only the date and time if there is no name). If a folder
 with that name already exists, a number is added. Inside:
@@ -223,11 +225,19 @@ about 2-5 minutes and needs the internet. The model is stored in
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`. A recording that finishes before the
 model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
 ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
-loading the model again in the background. After three failed loads, not counting network errors, Dabber stops trying
-until it is restarted. Recordings shorter than one second are not transcribed. If the transcription of a recording was
-interrupted twice (a crash, a forced quit or a power loss), Dabber does not try a third time: the recording is
-delivered without a transcript, and the menu says "Transcript failed: not attempted: transcription did not finish
-twice".
+loading the model again in the background. After three failed loads Dabber stops trying until it is restarted.
+Network problems do not count toward the three: no connection, a stalled or rate-limited download, a server error.
+A model file that is missing on the server or in the cache does count. Recordings shorter than one second are not
+transcribed. If the transcription of a recording was interrupted twice (a crash, a forced quit or a power loss),
+Dabber does not try a third time: the recording is delivered without a transcript, and the menu says "Transcript
+failed: not attempted: transcription did not finish twice".
+
+Dabber also counts loads and transcriptions that never finished across all recordings. After two of them in a row,
+Dabber turns transcription off: recordings are delivered without a transcript, and the menu says "Transcript failed:
+transcription is off: …". This protects against a model that crashes Dabber every time, for example after a macOS
+update. Transcription is tried again after Dabber is reinstalled or macOS is updated. A normal Quit while the model is
+loading does not count. A model load that finishes does not reset the count, only a finished transcription does:
+a model can load fine and still crash Dabber on every transcription.
 
 For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
 
