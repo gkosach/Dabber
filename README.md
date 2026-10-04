@@ -16,6 +16,7 @@ Dabber is a small macOS menu bar app that records what your Mac plays and what y
 - **Slides** (optional): with "Record slides" on, Dabber takes a screenshot every 2 seconds and, after Stop, makes a
   video: the mix plays, and each change of the screen stays in the picture until the next change. No screen video
   is recorded.
+- **Transcript** (on your Mac): text and subtitles for every recording, with «Я» and «Собеседники».
 - **Names from the calendar**: a recording is named after the calendar event that is on (or starts within 15 minutes).
   You can change the name while recording.
 - You choose the folder where finished recordings go.
@@ -199,6 +200,28 @@ by nanoseconds since the start).
 Everything on that display goes into the video: notifications, chats, passwords shown on screen. Turn Record slides
 off for recordings where this matters.
 
+### Transcript and subtitles
+
+After Stop, Dabber transcribes the recording on your Mac with the Parakeet speech model. Nothing leaves the Mac.
+Each source is transcribed on its own: microphones (the backup microphone too) are labelled «Я», Mac audio
+«Собеседники». Stereo Mac audio is mixed down to mono first. Lines the model is unsure about (mean word confidence
+below 0.7) are left out; this removes phrases the model invents from near-silence on a quiet microphone.
+
+- `transcript.txt`: the text with times, speakers and your marks.
+- `transcript.srt`: subtitles for any player. Both files are written next to the recording.
+- In the slides video, a Russian subtitle track. It is off when the video opens: turn it on in QuickTime Player
+  with View > Subtitles. If the subtitle track cannot be written, the video is kept without it and the menu says
+  "Subtitles left out of the video: …".
+
+The model (about 470 MB) is downloaded and compiled in the background when Dabber starts. The first time this takes
+about 2-5 minutes and needs the internet. The model is stored in
+`~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`. A recording that finishes before the
+model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
+ready yet". A failed download is retried on the next recording. Recordings shorter than one second are not
+transcribed.
+
+For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
+
 ### Recording names
 
 When you press Record, Dabber looks at your calendars for an event that is going on or starts within the next 15
@@ -308,3 +331,7 @@ The virtual microphone driver is built from [BlackHole](https://github.com/Exist
 Audio Inc., licensed under GPL-3.0. Its source, license and the list of local changes are in `Driver/BlackHole` and
 `Driver/NOTICE`. Dabber is not an official BlackHole build and is not affiliated with Existential Audio. The name
 "Dabber" is not affiliated with any other product of a similar name.
+
+Speech recognition uses [FluidAudio](https://github.com/FluidInference/FluidAudio) (Apache-2.0) and the NVIDIA
+[Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) model (CC-BY-4.0), converted to CoreML by
+FluidInference.

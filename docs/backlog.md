@@ -1,8 +1,18 @@
 # Backlog
 
-- **Speech-to-text (Whisper)**: built on 2026-09-24 (whisper.cpp v1.9.4, large-v3-turbo + Silero VAD, per-track Я/Собеседники) and removed the same day at the user's request as too heavy for the app; see git history before the revert. Original note: Transcribe finished sessions. Ideas: transcribe
-  per-source tracks separately (mic = the user, computer audio = the other side) to label speakers; optional
-  preprocessing tuned for recognition (compressor, EQ) before Whisper; show marks inside the transcript.
+- **Transcript**: done on 2026-10-04 with Parakeet v3 through FluidAudio (see
+  docs/superpowers/plans/2026-10-04-dabber-parakeet-subtitles.md). Open ideas:
+  - split «Собеседники» by voice with FluidAudio diarization;
+  - drop mic text that is the other side heard through the speakers (no headphones);
+  - a short invented line can survive the 0.7 confidence filter (one 0.24 s "I've got" in a 24-minute silent mic
+    track); measure confidences of real short replies before adding a rule;
+  - the backup mic overlaps the main mic for ~2.5 s after a handoff, so a few words may appear twice;
+  - quitting right after a long recording waits for its transcription (~15 s per hour per track, not
+    cancellable); add a skip-on-quit if it becomes annoying;
+  - no way to re-transcribe a recording delivered without a transcript (e.g. before the model was ready); a
+    `--transcribe-session <folder>` command would fix it;
+  - the first launch downloads ~470 MB silently, with no progress in the menu;
+  - the model stays loaded while the app runs; measure idle memory (`footprint`) and load it lazily if it is large.
 - **Deferred review items** (2026-09-23): drift resampler quality (windowed-sinc instead of linear), DC high-pass
   on mics, stereo-mic channel choice, silence-rule thresholds (300 ms RMS, -70 dB), >2-channel and multi-stream
   input devices, IOProc/tap cleanup on rare start errors.
