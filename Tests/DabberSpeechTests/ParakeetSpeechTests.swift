@@ -29,14 +29,22 @@ struct ParakeetSpeechTests {
     }
 
     @Test func stereoIsDownmixedToMono16k() throws {
+        try checkDownmix(seconds: 1)
+    }
+
+    @Test func longStereoCrossesSeveralBlocks() throws {
+        try checkDownmix(seconds: 25)
+    }
+
+    private func checkDownmix(seconds: Int) throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-speech-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: dir) }
         let url = dir.appendingPathComponent("stereo.caf")
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48_000, channels: 2, interleaved: false)!
-        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 48_000)!
-        buf.frameLength = 48_000
-        for i in 0..<48_000 {
+        let buf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(48_000 * seconds))!
+        buf.frameLength = AVAudioFrameCount(48_000 * seconds)
+        for i in 0..<(48_000 * seconds) {
             buf.floatChannelData![0][i] = 0
             buf.floatChannelData![1][i] = 0.5 * Float(sin(2 * Double.pi * 440 * Double(i) / 48_000))
         }
@@ -49,7 +57,7 @@ struct ParakeetSpeechTests {
         let out = try AVAudioFile(forReading: mono)
         #expect(out.fileFormat.channelCount == 1)
         #expect(out.fileFormat.sampleRate == 16_000)
-        #expect(abs(Int(out.length) - 16_000) < 200)
+        #expect(abs(Int(out.length) - 16_000 * seconds) < 200)
         let pcm = AVAudioPCMBuffer(pcmFormat: out.processingFormat, frameCapacity: AVAudioFrameCount(out.length))!
         try out.read(into: pcm)
         let n = Int(pcm.frameLength)

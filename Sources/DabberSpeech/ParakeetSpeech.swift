@@ -92,28 +92,38 @@ public final class ParakeetSpeech: @unchecked Sendable {
     static func monoCopy(of url: URL) throws -> URL? {
         let input = try AVAudioFile(forReading: url)
         guard input.fileFormat.channelCount > 1 else { return nil }
+        let fail = SpeechError.notReady("cannot downmix \(url.lastPathComponent)")
         let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+        let block: AVAudioFrameCount = 48_000 * 10
         guard let converter = AVAudioConverter(from: input.processingFormat, to: format),
-              let inBuf = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: AVAudioFrameCount(input.length))
-        else { throw SpeechError.notReady("cannot downmix \(url.lastPathComponent)") }
+              let inBuf = AVAudioPCMBuffer(pcmFormat: input.processingFormat, frameCapacity: block),
+              let outBuf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 16_000 * 11)
+        else { throw fail }
         converter.downmix = true
-        try input.read(into: inBuf)
-        let capacity = AVAudioFrameCount(Double(input.length) * 16_000 / input.processingFormat.sampleRate) + 1024
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else {
-            throw SpeechError.notReady("cannot downmix \(url.lastPathComponent)")
-        }
-        var fed = false
-        var convError: NSError?
-        let status = converter.convert(to: outBuf, error: &convError) { _, inStatus in
-            if fed { inStatus.pointee = .endOfStream; return nil }
-            fed = true
-            inStatus.pointee = .haveData
-            return inBuf
-        }
-        if status == .error { throw convError ?? SpeechError.notReady("cannot downmix \(url.lastPathComponent)") }
         let out = FileManager.default.temporaryDirectory.appendingPathComponent("dabber-mono-\(UUID().uuidString).caf")
         let file = try AVAudioFile(forWriting: out, settings: format.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        try file.write(from: outBuf)
+        do {
+            var readError: Error?
+            while true {
+                var convError: NSError?
+                let status = converter.convert(to: outBuf, error: &convError) { _, inStatus in
+                    inBuf.frameLength = 0
+                    if input.framePosition < input.length {
+                        do { try input.read(into: inBuf, frameCount: block) } catch { readError = error }
+                    }
+                    if readError != nil || inBuf.frameLength == 0 { inStatus.pointee = .endOfStream; return nil }
+                    inStatus.pointee = .haveData
+                    return inBuf
+                }
+                if let readError { throw readError }
+                if status == .error { throw convError ?? fail }
+                if outBuf.frameLength > 0 { try file.write(from: outBuf) }
+                if status == .endOfStream { break }
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: out)
+            throw error
+        }
         return out
     }
 }
