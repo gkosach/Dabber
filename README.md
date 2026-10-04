@@ -221,8 +221,8 @@ below 0.7) are left out; this removes phrases the model invents from near-silenc
   with View > Subtitles. If the subtitle track cannot be written, the video is kept without it and the menu says
   "Subtitles left out of the video: …".
 
-The model (about 470 MB) is downloaded and compiled in the background when Dabber starts. The first time this takes
-about 2-5 minutes and needs the internet. The model is stored in
+If Transcribe is on, the model (about 470 MB) is downloaded and compiled in the background when Dabber starts. The
+first time this takes about 2-5 minutes and needs the internet. The model is stored in
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`. A recording that finishes before the
 model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
 ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
@@ -235,11 +235,17 @@ Dabber does not try a third time: the recording is delivered without a transcrip
 failed: not attempted: transcription did not finish twice".
 
 The **Transcribe** switch under the sources turns transcription on and off. It is on by default. When it is off,
-recordings are delivered without a transcript and the menu shows no error about it, and Dabber does not load the
-model at launch. Turning it on starts loading the model. Unlike Record slides, the switch can be changed during a
-recording: Dabber checks it when it finishes the recording. If the model crashes Dabber, no recording is lost: after
-two unfinished attempts Dabber skips the transcript of that recording, as described above. If the model keeps crashing
-Dabber on every recording, turn Transcribe off.
+recordings are delivered without a transcript, and the menu shows no error about it. Dabber also does not load the
+model at launch. Turning the switch on starts loading the model. Unlike Record slides, the switch can be changed
+during a recording. Dabber reads it when it starts finishing a recording after Stop. Turning it off does not stop a
+transcription that is already running.
+
+If Dabber crashes while transcribing, the recording is not lost: after two unfinished attempts Dabber delivers it
+without a transcript, as described above. If transcription crashes Dabber on every recording, turn Transcribe off.
+If Dabber stops while the model is loading (a crash, a forced quit or a power loss), it turns Transcribe off at the
+next launch, and the menu says "Transcribe turned off: the speech model stopped Dabber while loading. Turn it on to
+try again." Recordings left unfinished from before are then delivered without a transcript. A normal Quit while the
+model is loading does not turn Transcribe off.
 
 For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
 
