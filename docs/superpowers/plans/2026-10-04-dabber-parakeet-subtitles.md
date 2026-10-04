@@ -636,7 +636,64 @@ In `Sources/DabberCore/Finalize/Finalizer.swift`:
         }
 ```
 
-4. Pass the cues to the slideshow: `slidesError = slideshow(manifest, dir: dir, chapters: chapters, subtitles: cues)`, add the `subtitles: [SubtitleCue]` parameter to the private `slideshow` function and pass `subtitles: subtitles` to `SlideshowWriter.write`.
+4. A subtitle problem must never cost the slides video: the subtitle lane runs inside the same `AVAssetWriter`, and a zero-length sample fails the whole file with -16364. Replace the private `slideshow` function with an internal one that retries once without subtitles:
+
+```swift
+    static func slideshow(
+        _ manifest: SessionManifest, dir: URL, chapters: [Chapter], subtitles: [SubtitleCue]
+    ) -> (slides: String?, subtitles: String?) {
+        let slides = manifest.frames
+            .map { Slide(offsetNanos: $0.offsetNanos, url: dir.appendingPathComponent($0.file)) }
+            .filter { FileManager.default.fileExists(atPath: $0.url.path) }
+        guard !slides.isEmpty else { return (nil, nil) }
+        let out = dir.appendingPathComponent(videoFile)
+        func attempt(_ cues: [SubtitleCue]) -> String? {
+            do {
+                try SlideshowWriter.write(
+                    audio: dir.appendingPathComponent(mixFile), slides: slides, chapters: chapters, subtitles: cues,
+                    title: manifest.name, to: out)
+                return nil
+            } catch {
+                try? FileManager.default.removeItem(at: out)
+                return "\(error)"
+            }
+        }
+        guard let failure = attempt(subtitles) else { return (nil, nil) }
+        guard !subtitles.isEmpty else { return (failure, nil) }
+        let retry = attempt([])
+        return retry == nil ? (nil, "subtitles dropped: \(failure)") : (retry, nil)
+    }
+```
+
+   and replace `slidesError = slideshow(manifest, dir: dir, chapters: chapters)` with
+
+```swift
+            let video = slideshow(manifest, dir: dir, chapters: chapters, subtitles: cues)
+            slidesError = video.slides
+            transcriptError = transcriptError ?? video.subtitles
+```
+
+   Add this test to `FinalizerTests` (the overlapping cues produce a zero-length span on purpose; `Subtitles.cues` never does that, so this simulates a future bug):
+
+```swift
+    @Test func aBrokenSubtitleTrackIsDroppedAndTheVideoKept() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        let frame = try slide(dir, atSeconds: 0, screen())
+        var manifest = SessionManifest(appVersion: "t", startedAt: startedAt, sessionStartNanos: 1)
+        manifest.frames = [FrameRecord(offsetNanos: frame.offsetNanos, file: frame.url.lastPathComponent)]
+        let result = Finalizer.slideshow(manifest, dir: dir, chapters: [], subtitles: [
+            SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+            SubtitleCue(startMillis: 1_000, endMillis: 1_500, text: "Я: Два"),
+        ])
+        #expect(result.slides == nil)
+        #expect(result.subtitles?.hasPrefix("subtitles dropped: ") == true)
+        #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
+    }
+```
 
 5. Add `transcriptError: transcriptError` to the `FinalizeReport(...)` call.
 
