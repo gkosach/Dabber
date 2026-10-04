@@ -73,6 +73,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            (try? Delivery.adoptUnfinished(from: AppPaths.recordingsRoot, into: work)) != nil {
             defaults.set(true, forKey: Self.legacyKey)
         }
+        let marker = ParakeetSpeech.loadMarker(in: AppPaths.supportRoot)
+        if FileManager.default.fileExists(atPath: marker.path) {
+            try? FileManager.default.removeItem(at: marker)
+            Self.model.speechLoadStoppedDabber()
+        }
+        ParakeetSpeech.shared.markLoads(in: AppPaths.supportRoot)
         if Self.transcribeOn { ParakeetSpeech.shared.prepare() }
         let pending = Finalizer.sessionFolders(root: work)
         Self.model.finishBeforeQuit(Task.detached(priority: .utility) {
@@ -116,6 +122,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
             await Self.model.prepareToQuit()
+            ParakeetSpeech.shared.quitting()
             sender.reply(toApplicationShouldTerminate: true)
         }
         return .terminateLater

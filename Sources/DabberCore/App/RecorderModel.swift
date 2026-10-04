@@ -231,6 +231,14 @@ public final class RecorderModel {
         persistTranscribe(transcribeOn)
     }
 
+    /// At launch, when the last model load never finished: the next load would likely crash Dabber again.
+    public func speechLoadStoppedDabber() {
+        transcribeOn = false
+        persistTranscribe(false)
+        notices.append("Transcribe turned off: the speech model stopped Dabber while loading. Turn it on to try again.")
+        tick()
+    }
+
     public var backupChoices: [BackupChoice] {
         let recorded = recordedMics
         var choices = rows.filter { $0.id != Self.computerID && !recorded.contains($0.id) }.map {

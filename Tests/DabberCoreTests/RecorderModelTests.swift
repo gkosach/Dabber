@@ -921,6 +921,19 @@ private func slidesModel(
     #expect(saved == [false, true])
 }
 
+@MainActor @Test func aModelLoadThatStoppedDabberTurnsTranscribeOffWithANotice() {
+    nonisolated(unsafe) var saved: [Bool] = []
+    let m = RecorderModel(
+        engine: FakeEngine(), catalog: FakeCatalog(devices: [airpods]), enabledIDs: ["computer", "ap"], persist: { _ in },
+        finalize: { dir, _ in dir }, transcribeOn: true, persistTranscribe: { saved.append($0) })
+    m.speechLoadStoppedDabber()
+    #expect(!m.transcribeOn)
+    #expect(saved == [false])
+    #expect(m.warning == "Transcribe turned off: the speech model stopped Dabber while loading. Turn it on to try again.")
+    m.menuClosed()
+    #expect(m.warning == nil)
+}
+
 @MainActor @Test func recordingWithSlidesGrabsIntoTheEngineUntilStop() async {
     let e = FakeEngine()
     let (m, slides) = slidesModel(e, on: true)
