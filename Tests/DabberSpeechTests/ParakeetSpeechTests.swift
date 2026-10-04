@@ -17,6 +17,16 @@ struct ParakeetSpeechTests {
         ])
     }
 
+    @Test func aMergedWordCarriesTheMeanTokenConfidence() {
+        func c(_ token: String, _ start: Double, _ end: Double, _ conf: Float) -> TokenTiming {
+            TokenTiming(token: token, tokenId: 0, startTime: start, endTime: end, confidence: conf)
+        }
+        let words = ParakeetSpeech.words([c(" При", 0.1, 0.2, 0.5), c("вет", 0.2, 0.4, 0.9), c(" да", 1.0, 1.2, 0.8)])
+        #expect(words.map(\.text) == ["Привет", "да"])
+        #expect(abs(words[0].confidence - 0.7) < 1e-6)
+        #expect(abs(words[1].confidence - 0.8) < 1e-6)
+    }
+
     @Test func noTokensNoWords() {
         #expect(ParakeetSpeech.words([]).isEmpty)
     }

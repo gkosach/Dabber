@@ -79,13 +79,30 @@ public final class ParakeetSpeech: @unchecked Sendable {
         return asr
     }
 
+    /// FluidAudio's `WordTiming` has no confidence, so the tokens are split into words by the same rule as
+    /// `buildWordTimings` (a word-boundary token or an empty current word starts a new one). Each group goes through
+    /// `buildWordTimings` for the text and times; its confidence is the mean of its token confidences.
     static func words(_ tokens: [TokenTiming]) -> [SpokenWord] {
-        buildWordTimings(from: tokens).compactMap { word in
+        var groups: [[TokenTiming]] = []
+        var currentText = ""
+        for t in tokens {
+            if t.token.isEmpty || t.token == "<blank>" || t.token == "<pad>" { continue }
+            if isWordBoundary(t.token) || currentText.isEmpty {
+                groups.append([t])
+                currentText = stripWordBoundaryPrefix(t.token)
+            } else {
+                groups[groups.count - 1].append(t)
+                currentText += t.token
+            }
+        }
+        return groups.compactMap { group in
+            guard let word = buildWordTimings(from: group).first else { return nil }
             let text = word.word.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !text.isEmpty else { return nil }
             return SpokenWord(
                 startMillis: Int((word.startTime * 1000).rounded()),
-                endMillis: Int((word.endTime * 1000).rounded()), text: text)
+                endMillis: Int((word.endTime * 1000).rounded()), text: text,
+                confidence: group.map { Double($0.confidence) }.reduce(0, +) / Double(group.count))
         }
     }
 

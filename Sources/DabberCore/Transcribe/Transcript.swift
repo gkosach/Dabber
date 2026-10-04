@@ -4,11 +4,13 @@ public struct SpokenWord: Equatable, Sendable {
     public let startMillis: Int
     public let endMillis: Int
     public let text: String
+    public let confidence: Double
 
-    public init(startMillis: Int, endMillis: Int, text: String) {
+    public init(startMillis: Int, endMillis: Int, text: String, confidence: Double = 1) {
         self.startMillis = startMillis
         self.endMillis = endMillis
         self.text = text
+        self.confidence = confidence
     }
 }
 
@@ -37,25 +39,36 @@ public enum Transcript {
     static let pauseMillis = 1_000
     static let maxChars = 84
     static let minSentenceMillis = 1_000
+    /// A line whose mean word confidence is lower is dropped: on near-silence the model invents phrases at 0.5-0.55.
+    static let minConfidence = 0.7
 
     public static func lines(_ words: [SpokenWord], speaker: String) -> [TranscriptLine] {
         var out: [TranscriptLine] = []
         var current: TranscriptLine?
+        var sum = 0.0
+        var count = 0
+        func emit(_ line: TranscriptLine) {
+            if sum / Double(count) >= minConfidence { out.append(line) }
+        }
         for w in words {
             let word = w.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !word.isEmpty else { continue }
             if let c = current, w.startMillis - c.endMillis < pauseMillis, c.text.count + 1 + word.count <= maxChars {
                 current = TranscriptLine(startMillis: c.startMillis, endMillis: max(c.endMillis, w.endMillis), speaker: speaker, text: c.text + " " + word)
+                sum += w.confidence
+                count += 1
             } else {
-                if let c = current { out.append(c) }
+                if let c = current { emit(c) }
                 current = TranscriptLine(startMillis: w.startMillis, endMillis: max(w.endMillis, w.startMillis + 1), speaker: speaker, text: word)
+                sum = w.confidence
+                count = 1
             }
             if let c = current, c.endMillis - c.startMillis >= minSentenceMillis, let last = word.last, ".?!".contains(last) {
-                out.append(c)
+                emit(c)
                 current = nil
             }
         }
-        if let c = current { out.append(c) }
+        if let c = current { emit(c) }
         return out
     }
 

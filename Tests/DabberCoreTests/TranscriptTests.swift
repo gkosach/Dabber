@@ -2,11 +2,21 @@ import Foundation
 import Testing
 @testable import DabberCore
 
-private func w(_ text: String, _ start: Int, _ end: Int) -> SpokenWord {
-    SpokenWord(startMillis: start, endMillis: end, text: text)
+private func w(_ text: String, _ start: Int, _ end: Int, _ confidence: Double = 1) -> SpokenWord {
+    SpokenWord(startMillis: start, endMillis: end, text: text, confidence: confidence)
 }
 
 struct TranscriptTests {
+    @Test func unsureLinesAreDropped() {
+        let lines = Transcript.lines([w("I've", 0, 300, 0.5), w("got", 350, 600, 0.5), w("Да", 2_600, 2_900, 0.95), w("хорошо", 2_950, 3_300, 0.9)], speaker: "Я")
+        #expect(lines.map(\.text) == ["Да хорошо"])
+    }
+
+    @Test func oneUnsureWordDoesNotDropASureLine() {
+        let lines = Transcript.lines([w("Как", 0, 300, 1), w("дела", 350, 600, 0.3), w("сегодня", 650, 1_000, 1)], speaker: "Я")
+        #expect(lines.map(\.text) == ["Как дела сегодня"])
+    }
+
     @Test func wordsJoinIntoOneLineUntilAPause() {
         let lines = Transcript.lines([w("Все", 0, 300), w("в", 350, 400), w("сборе", 450, 900), w("Да", 2_500, 2_800)], speaker: "Я")
         #expect(lines == [
