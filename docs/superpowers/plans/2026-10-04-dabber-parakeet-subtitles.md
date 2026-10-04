@@ -1087,3 +1087,11 @@ Expected in the delivered folder: `transcript.txt` with «Собеседники
 - [ ] **Step 3: Failure path**
 
 Turn Wi-Fi off, delete the model folder (`~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml` or wherever Task 6 Step 3 put it; check with `ls ~/Library/Application\ Support/FluidAudio/Models`), record 10 seconds, Stop. Expected: the recording is delivered, the menu shows `Transcript failed: …`. Turn Wi-Fi back on.
+
+---
+
+### Changes after review
+
+- The app-wide crash breaker (`SpeechBreaker`, a count of unfinished loads and transcriptions in UserDefaults) is removed in favour of a **Transcribe** switch in the menu. The breaker never tripped when the model crashed on a later track of every recording, because each finished track cleared the count, and the installed app and `scripts/run-headless.sh` share one bundle id, so they reset each other's count. The per-recording `transcribing` marker in the finalizer stays: a recording is never lost and its transcript is tried at most twice.
+- Network failures of the model load now stop the retries after ten in one app run (other failures after three), so a proxy that corrupts downloads cannot make every finalize download the model again.
+- `scripts/install-app.sh` waits up to 10 minutes for the old app to quit and stops with an error instead of replacing a running app.

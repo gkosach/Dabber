@@ -86,8 +86,9 @@ Open Terminal and run the commands below one by one.
    ```
 
    This builds Dabber, signs it with "Dabber Dev" and copies it to
-   `/Applications/Dabber.app`. If Dabber is running, the script quits it first. It refuses to overwrite a different
-   app with the same name.
+   `/Applications/Dabber.app`. If Dabber is running, the script quits it first and waits until it has finished its
+   recordings, at most 10 minutes; if Dabber is still running then, the script stops without replacing it. It refuses
+   to overwrite a different app with the same name.
 
 4. Start Dabber from Applications or Spotlight. It has no Dock icon and no window: look for the waveform icon in the
    menu bar and click it.
@@ -227,17 +228,18 @@ model is ready is delivered without a transcript, and the menu says "Transcript 
 ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
 loading the model again in the background. After three failed loads Dabber stops trying until it is restarted.
 Network problems do not count toward the three: no connection, a stalled or rate-limited download, a server error.
-A model file that is missing on the server or in the cache does count. Recordings shorter than one second are not
+They have a limit of their own: after ten of them Dabber also stops trying until it is restarted. A model file that
+is missing on the server or in the cache counts toward the three. Recordings shorter than one second are not
 transcribed. If the transcription of a recording was interrupted twice (a crash, a forced quit or a power loss),
 Dabber does not try a third time: the recording is delivered without a transcript, and the menu says "Transcript
 failed: not attempted: transcription did not finish twice".
 
-Dabber also counts loads and transcriptions that never finished across all recordings. After two of them in a row,
-Dabber turns transcription off: recordings are delivered without a transcript, and the menu says "Transcript failed:
-transcription is off: …". This protects against a model that crashes Dabber every time, for example after a macOS
-update. Transcription is tried again after Dabber is reinstalled or macOS is updated. A normal Quit while the model is
-loading does not count. A model load that finishes does not reset the count, only a finished transcription does:
-a model can load fine and still crash Dabber on every transcription.
+The **Transcribe** switch under the sources turns transcription on and off. It is on by default. When it is off,
+recordings are delivered without a transcript and the menu shows no error about it, and Dabber does not load the
+model at launch. Turning it on starts loading the model. Unlike Record slides, the switch can be changed during a
+recording: Dabber checks it when it finishes the recording. If the model crashes Dabber, no recording is lost: after
+two unfinished attempts Dabber skips the transcript of that recording, as described above. If the model keeps crashing
+Dabber on every recording, turn Transcribe off.
 
 For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
 
