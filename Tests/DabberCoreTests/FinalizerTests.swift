@@ -866,38 +866,51 @@ extension FinalizerTests {
         #expect(text == "[00:00:01] Я: Привет\n")
     }
 
-    @Test func aTranscriptionThatNeverFinishedIsSkippedOnTheNextRun() throws {
+    private func marker(_ dir: URL) -> URL { dir.appendingPathComponent(Finalizer.transcribingMarker) }
+
+    @Test func oneUnfinishedTranscriptionIsTriedAgain() throws {
         let dir = try makeSession()
-        let marker = dir.appendingPathComponent(Finalizer.transcribingMarker)
-        try Data().write(to: marker)
+        try "1".write(to: marker(dir), atomically: true, encoding: .utf8)
+        let seen = Asked()
+        let report = try Finalizer.run(dir, speech: { url in
+            seen.names.append(try String(contentsOf: url.deletingLastPathComponent().appendingPathComponent(Finalizer.transcribingMarker), encoding: .utf8))
+            return []
+        })
+        #expect(seen.names == ["2", "2"])
+        #expect(report.transcriptError == nil)
+        #expect(!FileManager.default.fileExists(atPath: marker(dir).path))
+    }
+
+    @Test func twoUnfinishedTranscriptionsAreNotAttemptedAgain() throws {
+        let dir = try makeSession()
+        try "2".write(to: marker(dir), atomically: true, encoding: .utf8)
         let asked = Asked()
         let report = try Finalizer.run(dir, speech: { url in
             asked.names.append(url.lastPathComponent)
             return []
         })
         #expect(asked.names.isEmpty)
-        #expect(report.transcriptError == "skipped: the previous attempt did not finish")
-        #expect(!FileManager.default.fileExists(atPath: marker.path))
+        #expect(report.transcriptError == "not attempted: transcription did not finish twice")
+        #expect(!FileManager.default.fileExists(atPath: marker(dir).path))
         let quiet = try makeSession()
-        try Data().write(to: quiet.appendingPathComponent(Finalizer.transcribingMarker))
+        try "2".write(to: marker(quiet), atomically: true, encoding: .utf8)
         #expect(try Finalizer.run(quiet).transcriptError == nil)
-        #expect(!FileManager.default.fileExists(atPath: quiet.appendingPathComponent(Finalizer.transcribingMarker).path))
+        #expect(!FileManager.default.fileExists(atPath: marker(quiet).path))
     }
 
-    @Test func theTranscribingMarkerIsGoneAfterSuccessAndFailure() throws {
+    @Test func theTranscribingMarkerCountsTheAttemptAndIsGoneAfterSuccessAndFailure() throws {
         struct Boom: Error {}
         let outcomes: [SpeechToText] = [{ _ in [] }, { _ in throw Boom() }]
         for speech in outcomes {
             let dir = try makeSession()
             let seen = Asked()
             try Finalizer.run(dir, speech: { url in
-                if FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent(Finalizer.transcribingMarker).path) {
-                    seen.names.append(url.lastPathComponent)
-                }
+                let marker = url.deletingLastPathComponent().appendingPathComponent(Finalizer.transcribingMarker)
+                seen.names.append((try? String(contentsOf: marker, encoding: .utf8)) ?? "none")
                 return try speech(url)
             })
-            #expect(!seen.names.isEmpty)
-            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.transcribingMarker).path))
+            #expect(seen.names == ["1", "1"])
+            #expect(!FileManager.default.fileExists(atPath: marker(dir).path))
         }
     }
 
