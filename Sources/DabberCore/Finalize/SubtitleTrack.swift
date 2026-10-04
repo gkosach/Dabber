@@ -7,9 +7,9 @@ enum SubtitleTrack {
     static func lane(_ cues: [SubtitleCue], end: CMTime, writer: AVAssetWriter) throws -> WriterFeed.Lane? {
         let spans = spans(cues, endMillis: Int(end.seconds * 1000))
         guard spans.contains(where: { !$0.text.isEmpty }) else { return nil }
-        let format = try ChapterWriter.textFormat(mediaType: kCMMediaType_Subtitle, subType: kCMSubtitleFormatType_3GText)
+        let format = try TextSamples.format(mediaType: kCMMediaType_Subtitle, subType: kCMSubtitleFormatType_3GText)
         var samples = try spans.map { span in
-            try ChapterWriter.sample(
+            try TextSamples.sample(
                 span.text, start: CMTime(value: CMTimeValue(span.start), timescale: 1000),
                 duration: CMTime(value: CMTimeValue(span.end - span.start), timescale: 1000), format: format)
         }
