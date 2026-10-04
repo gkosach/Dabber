@@ -842,6 +842,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
         let start = lock.withLock {
             guard manager == nil, !loading else { return false }
             loading = true
+            loadError = nil
             return true
         }
         guard start else { return }
@@ -900,6 +901,8 @@ public final class ParakeetSpeech: @unchecked Sendable {
 }
 
 /// Finalizer is synchronous and runs on a background queue; this waits there for the async FluidAudio call.
+/// It blocks a thread of the shared pool while it waits; Delivery.lock lets only one transcription run at a time,
+/// the same trade-off ChapterWriter.write already makes with its semaphore.
 private func blocking<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
     let done = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Result<T, any Error>?
