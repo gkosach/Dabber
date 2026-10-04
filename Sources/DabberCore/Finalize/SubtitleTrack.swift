@@ -8,7 +8,7 @@ enum SubtitleTrack {
         let spans = spans(cues, endMillis: Int(end.seconds * 1000))
         guard spans.contains(where: { !$0.text.isEmpty }) else { return nil }
         let format = try TextSamples.format(mediaType: kCMMediaType_Subtitle, subType: kCMSubtitleFormatType_3GText)
-        var samples = try spans.map { span in
+        let samples = try spans.map { span in
             try TextSamples.sample(
                 span.text, start: CMTime(value: CMTimeValue(span.start), timescale: 1000),
                 duration: CMTime(value: CMTimeValue(span.end - span.start), timescale: 1000), format: format)
@@ -18,7 +18,12 @@ enum SubtitleTrack {
         input.extendedLanguageTag = "ru"
         input.marksOutputTrackAsEnabled = false
         writer.add(input)
-        return (input, { samples.isEmpty ? nil : samples.removeFirst() })
+        var next = 0
+        return (input, {
+            guard next < samples.count else { return nil }
+            defer { next += 1 }
+            return samples[next]
+        })
     }
 
     /// Contiguous samples from 0: cues plus empty gaps, none shorter than Subtitles.minMillis. The last one may end up to minMillis before the audio does.

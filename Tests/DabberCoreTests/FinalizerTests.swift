@@ -704,6 +704,17 @@ extension FinalizerTests {
         #expect(!FileManager.default.fileExists(atPath: out.path))
     }
 
+    /// A folder with a 3 s stereo mix.m4a for the slideshow tests.
+    private func mixFolder() throws -> (dir: URL, audio: URL) {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let audio = dir.appendingPathComponent(Finalizer.mixFile)
+        let writer = try AACWriter(url: audio, channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        return (dir, audio)
+    }
+
     private func subtitleSamples(_ url: URL) async throws -> [String] {
         let asset = AVURLAsset(url: url)
         let track = try #require(try await asset.loadTracks(withMediaType: .subtitle).first)
@@ -722,12 +733,7 @@ extension FinalizerTests {
     }
 
     @Test func slideshowCarriesRussianSubtitlesThatAreOffByDefault() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let audio = dir.appendingPathComponent("mix.m4a")
-        let writer = try AACWriter(url: audio, channels: 2)
-        try writer.write(sine(frames: 144_000, channels: 2))
-        try writer.closeAndVerify()
+        let (dir, audio) = try mixFolder()
         let slides = [try slide(dir, atSeconds: 0, screen())]
         let out = dir.appendingPathComponent("mix.mp4")
         try SlideshowWriter.write(
@@ -747,12 +753,7 @@ extension FinalizerTests {
     }
 
     @Test func aCueInTheLastMomentOfTheAudioIsDropped() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let audio = dir.appendingPathComponent("mix.m4a")
-        let writer = try AACWriter(url: audio, channels: 2)
-        try writer.write(sine(frames: 144_000, channels: 2))
-        try writer.closeAndVerify()
+        let (dir, audio) = try mixFolder()
         let out = dir.appendingPathComponent("mix.mp4")
         try SlideshowWriter.write(
             audio: audio, slides: [try slide(dir, atSeconds: 0, screen())], chapters: [],
@@ -908,11 +909,7 @@ extension FinalizerTests {
     }
 
     @Test func aBrokenSubtitleTrackIsDroppedAndTheVideoKept() async throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
-        try writer.write(sine(frames: 144_000, channels: 2))
-        try writer.closeAndVerify()
+        let dir = try mixFolder().dir
         let frame = try slide(dir, atSeconds: 0, screen())
         var manifest = SessionManifest(appVersion: "t", startedAt: startedAt, sessionStartNanos: 1)
         manifest.frames = [FrameRecord(offsetNanos: frame.offsetNanos, file: frame.url.lastPathComponent)]
@@ -955,11 +952,7 @@ extension FinalizerTests {
     }
 
     @Test func whenTheVideoFailsWithoutSubtitlesTooOnlyTheSlidesErrorIsReported() throws {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let writer = try AACWriter(url: dir.appendingPathComponent(Finalizer.mixFile), channels: 2)
-        try writer.write(sine(frames: 144_000, channels: 2))
-        try writer.closeAndVerify()
+        let dir = try mixFolder().dir
         try Data([1, 2, 3]).write(to: dir.appendingPathComponent("broken.heic"))
         var manifest = SessionManifest(appVersion: "t", startedAt: startedAt, sessionStartNanos: 1)
         manifest.frames = [FrameRecord(offsetNanos: 0, file: "broken.heic")]

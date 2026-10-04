@@ -33,9 +33,9 @@ public struct TranscriptLine: Equatable, Sendable {
 
 public enum Transcript {
     public static let me = "Я"
-    public static let others = "Собеседники"
-    public static let textFile = "transcript.txt"
-    public static let srtFile = "transcript.srt"
+    static let others = "Собеседники"
+    static let textFile = "transcript.txt"
+    static let srtFile = "transcript.srt"
     static let pauseMillis = 1_000
     static let maxChars = 84
     static let minSentenceMillis = 1_000
@@ -72,12 +72,12 @@ public enum Transcript {
         return out
     }
 
-    public static func merge(_ tracks: [[TranscriptLine]]) -> [TranscriptLine] {
+    static func merge(_ tracks: [[TranscriptLine]]) -> [TranscriptLine] {
         let all = tracks.flatMap { $0 }
         return all.indices.sorted { (all[$0].startMillis, $0) < (all[$1].startMillis, $1) }.map { all[$0] }
     }
 
-    public static func text(_ lines: [TranscriptLine], marks: [Mark]) -> String {
+    static func text(_ lines: [TranscriptLine], marks: [Mark]) -> String {
         var pending = Chapters.marks(marks, durationMillis: Int.max)[...]
         var out = ""
         for line in lines {
@@ -91,7 +91,7 @@ public enum Transcript {
         return out
     }
 
-    public static func srt(_ lines: [TranscriptLine]) -> String {
+    static func srt(_ lines: [TranscriptLine]) -> String {
         lines.enumerated().map { i, line in
             "\(i + 1)\n\(timecode(line.startMillis)) --> \(timecode(line.endMillis))\n\(line.speaker): \(line.text)\n\n"
         }.joined()

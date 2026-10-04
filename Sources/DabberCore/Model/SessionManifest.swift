@@ -81,8 +81,7 @@ public struct FinalizeReport: Codable, Equatable, Sendable {
     public var subtitlesError: String?
     public init(
         totalFrames: Int, gaps: [GapRecord], driftMillis: [String: Double], resampled: [String], slidesError: String? = nil,
-        unreadable: [String]? = nil, transcriptError: String? = nil,
-        subtitlesError: String? = nil
+        unreadable: [String]? = nil, transcriptError: String? = nil, subtitlesError: String? = nil
     ) {
         self.totalFrames = totalFrames
         self.gaps = gaps

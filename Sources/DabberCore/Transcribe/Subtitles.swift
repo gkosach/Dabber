@@ -1,6 +1,6 @@
 public struct SubtitleCue: Equatable, Sendable {
     public let startMillis: Int
-    public var endMillis: Int
+    public internal(set) var endMillis: Int
     public let text: String
 
     public init(startMillis: Int, endMillis: Int, text: String) {
@@ -10,12 +10,12 @@ public struct SubtitleCue: Equatable, Sendable {
     }
 }
 
-public enum Subtitles {
+enum Subtitles {
     /// Shortest cue anyone can read. AVAssetWriter also fails the whole mp4 (-16364) on a zero-length subtitle sample, so nothing shorter is ever written.
-    public static let minMillis = 300
+    static let minMillis = 300
 
     /// Cues never overlap, start in increasing order and last at least minMillis. A line shorter than minMillis that overlaps another line is folded away here; the txt and srt keep it.
-    public static func cues(_ lines: [TranscriptLine]) -> [SubtitleCue] {
+    static func cues(_ lines: [TranscriptLine]) -> [SubtitleCue] {
         let cuts = Set(lines.flatMap { [$0.startMillis, $0.endMillis] }).sorted()
         var out: [SubtitleCue] = []
         for (a, b) in zip(cuts, cuts.dropFirst()) {
