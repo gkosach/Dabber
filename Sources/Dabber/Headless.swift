@@ -1,6 +1,7 @@
 import CoreAudio
 import Foundation
 import DabberCore
+import DabberSpeech
 
 enum Headless {
     static func run(_ raw: [String]) -> Int32 {
@@ -274,13 +275,24 @@ enum Headless {
                 let bytes = frames.compactMap { try? FileManager.default.attributesOfItem(atPath: stopped.appendingPathComponent($0.file).path)[.size] as? Int }
                 log.line("FRAMES \(frames.count) bytes=\(bytes.reduce(0, +))")
             }
-            let report = try Finalizer.run(stopped)
+            try? ParakeetSpeech.shared.prepareNow()  // offline: the recording still goes out, without a transcript
+            let report = try Finalizer.run(stopped, speech: ParakeetSpeech.shared.transcribe)
             log.line("FINALIZED total=\(report.totalFrames) gaps=\(report.gaps.count) resampled=\(report.resampled.count)"
-                + (report.slidesError.map { " slidesError=\($0)" } ?? ""))
+                + (report.slidesError.map { " slidesError=\($0)" } ?? "")
+                + (report.transcriptError.map { " transcriptError=\($0)" } ?? "")
+                + (report.subtitlesError.map { " subtitlesError=\($0)" } ?? ""))
             let named = try Finalizer.rename(stopped)
             log.line("NAMED \(named.path)")
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
             log.line("DELIVERED \(try Delivery.deliver(named, into: output).path)")
+            return 0
+        case "--transcribe":
+            guard args.count == 2 else { return 64 }
+            try ParakeetSpeech.shared.prepareNow()
+            let words = try ParakeetSpeech.shared.transcribe(URL(fileURLWithPath: args[1]))
+            for line in Transcript.lines(words, speaker: Transcript.me) {
+                log.line("\(line.startMillis)\t\(line.endMillis)\t\(line.text)")
+            }
             return 0
         default:
             log.line("unknown command: \(args.joined(separator: " "))")

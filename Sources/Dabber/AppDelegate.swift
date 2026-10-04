@@ -1,6 +1,7 @@
 import AppKit
 import CoreAudio
 import DabberCore
+import DabberSpeech
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private static let enabledKey = "enabledSources"
@@ -18,6 +19,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         names: UserDefaults.standard.dictionary(forKey: namesKey) as? [String: String] ?? [:],
         persist: { UserDefaults.standard.set(Array($0).sorted(), forKey: enabledKey) },
         persistNames: { UserDefaults.standard.set($0, forKey: namesKey) },
+        finalize: { try Delivery.finishAndDeliver($0, output: $1, speech: ParakeetSpeech.shared.transcribe) },
         calendar: EventKitCalendar(),
         outputFolder: UserDefaults.standard.string(forKey: outputKey).map { URL(fileURLWithPath: $0, isDirectory: true) }
             ?? AppPaths.recordingsRoot,
@@ -59,10 +61,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
            (try? Delivery.adoptUnfinished(from: AppPaths.recordingsRoot, into: work)) != nil {
             defaults.set(true, forKey: Self.legacyKey)
         }
+        ParakeetSpeech.shared.prepare()
         let pending = Finalizer.sessionFolders(root: work)
         Task.detached(priority: .utility) {
             let failure = Delivery.recover(
-                pending, work: work, output: output,
+                pending, work: work, output: output, speech: ParakeetSpeech.shared.transcribe,
                 onError: { dir, error in Task { @MainActor in Self.model.recoveryFailed(dir, error) } },
                 onReport: { dir, report in Task { @MainActor in Self.model.recovered(dir, report) } })
             await MainActor.run { Self.model.deliveryDone(failure: failure) }
