@@ -46,6 +46,24 @@ final class WriterFeed: @unchecked Sendable {
     }
 }
 
+/// An AVFoundation error prints as a dump of its user info. This keeps the readable part, the failure reason or else
+/// the description, and adds the underlying OSStatus when the text does not show it yet:
+/// "An unknown error occurred (-16364)".
+enum WriterFailure {
+    static func text(_ error: any Error) -> String {
+        guard type(of: error) is NSError.Type else { return "\(error)" }
+        let ns = error as NSError
+        let text = ns.localizedFailureReason ?? ns.localizedDescription
+        guard let code = status(error), !text.contains("(\(code))") else { return text }
+        return "\(text) (\(code))"
+    }
+
+    /// The code of the underlying error, an OSStatus for AVFoundation errors.
+    static func status(_ error: any Error) -> Int? {
+        ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.code
+    }
+}
+
 struct AudioPassthrough {
     let reader: AVAssetReader
     let format: CMFormatDescription

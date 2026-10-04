@@ -4,13 +4,14 @@ import CoreVideo
 public enum SlideshowError: Error, CustomStringConvertible {
     case noFrames
     case pixelBuffer(Int32)
-    case write(String)
+    /// The writer or the audio reader failed; nil when AVFoundation gave no error.
+    case write((any Error)?)
 
     public var description: String {
         switch self {
         case .noFrames: return "no frames"
         case .pixelBuffer(let status): return "pixel buffer: \(status)"
-        case .write(let why): return "writing video failed: \(why)"
+        case .write(let error): return "writing video failed: \(error.map(WriterFailure.text) ?? "no reason given")"
         }
     }
 }
@@ -60,7 +61,7 @@ public enum SlideshowWriter {
             let next = index < shown.count ? time(shown[index].atNanos) : end
             return try sample(Frames.decode(item.slide.url), width: size.width, height: size.height, at: time(item.atNanos), until: next)
         })
-        guard writer.startWriting() else { throw SlideshowError.write("\(writer.error.map { "\($0)" } ?? "start")") }
+        guard writer.startWriting() else { throw SlideshowError.write(writer.error) }
         writer.startSession(atSourceTime: .zero)
         try WriterFeed([pictures, source.lane(sound)] + [text, captions].compactMap { $0 }).run(writer)
         writer.endSession(atSourceTime: end)
@@ -68,7 +69,7 @@ public enum SlideshowWriter {
         writer.finishWriting { done.signal() }
         done.wait()
         guard writer.status == .completed, source.reader.status == .completed else {
-            throw SlideshowError.write("\(writer.error ?? source.reader.error.map { $0 as any Error } ?? SlideshowError.noFrames)")
+            throw SlideshowError.write(writer.error ?? source.reader.error)
         }
     }
 

@@ -959,7 +959,7 @@ extension FinalizerTests {
             SubtitleCue(startMillis: 1_000, endMillis: 1_500, text: "Я: Два"),
         ])
         #expect(result.slides == nil)
-        #expect(result.subtitles != nil)
+        #expect(result.subtitles == "writing video failed: An unknown error occurred (-16364)")
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
         #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).isEmpty)
     }
@@ -1013,6 +1013,23 @@ extension FinalizerTests {
         #expect(Finalizer.brief(NSError(domain: "d", code: 1, userInfo: [NSLocalizedDescriptionKey: "from NSError"])) == "from NSError")
         #expect(Finalizer.brief(Plain()) == "plain")
         #expect(Finalizer.brief(Long()) == String(repeating: "x", count: 200))
+    }
+
+    @Test func writerErrorsReadAsTheReasonAndTheUnderlyingStatus() {
+        struct Plain: Error, CustomStringConvertible { var description: String { "plain" } }
+        let status = NSError(domain: NSOSStatusErrorDomain, code: -12345)
+        let reason = NSError(domain: AVFoundationErrorDomain, code: -11800, userInfo: [
+            NSLocalizedDescriptionKey: "The operation could not be completed",
+            NSLocalizedFailureReasonErrorKey: "An unknown error occurred (-12345)", NSUnderlyingErrorKey: status,
+        ])
+        let bare = NSError(domain: AVFoundationErrorDomain, code: -11800, userInfo: [
+            NSLocalizedDescriptionKey: "The operation could not be completed", NSUnderlyingErrorKey: status,
+        ])
+        #expect(WriterFailure.text(reason) == "An unknown error occurred (-12345)")
+        #expect(WriterFailure.text(bare) == "The operation could not be completed (-12345)")
+        #expect(WriterFailure.text(Plain()) == "plain")
+        #expect(SlideshowError.write(bare).description == "writing video failed: The operation could not be completed (-12345)")
+        #expect(SlideshowError.write(nil).description == "writing video failed: no reason given")
     }
 
     @Test func launchRecoveryTranscribesTheSessionsItRecovers() throws {

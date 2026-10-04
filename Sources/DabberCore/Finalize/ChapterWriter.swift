@@ -28,7 +28,7 @@ public enum ChapterWriter {
         writer.add(audio)
         let end = CMTime(value: frames, timescale: CMTimeScale(Timeline.rate))
         let text = try chapterLane(chapters, end: end, writer: writer, linkedFrom: [audio])
-        guard writer.startWriting() else { throw ChapterError.write(name, "\(writer.error.map { "\($0)" } ?? "start")") }
+        guard writer.startWriting() else { throw ChapterError.write(name, writer.error.map(WriterFailure.text) ?? "start") }
         writer.startSession(atSourceTime: .zero)
         try WriterFeed([source.lane(audio)] + (text.map { [$0] } ?? [])).run(writer)
         writer.endSession(atSourceTime: end)
@@ -36,7 +36,7 @@ public enum ChapterWriter {
         writer.finishWriting { done.signal() }
         done.wait()
         guard writer.status == .completed, source.reader.status == .completed else {
-            throw ChapterError.write(name, "\(writer.error ?? source.reader.error.map { $0 as any Error } ?? ChapterError.noAudio(name))")
+            throw ChapterError.write(name, (writer.error ?? source.reader.error).map(WriterFailure.text) ?? "no reason given")
         }
         let written = try AVAudioFile(forReading: out).length
         guard written == frames else {
