@@ -70,7 +70,10 @@ public enum Finalizer {
         try mix.closeAndVerify()
         var cues: [SubtitleCue] = []
         var transcriptError: String?
+        var subtitlesError: String?
         if total > 0, let speech {
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.textFile))
+            try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.srtFile))
             do {
                 let lines = try transcribe(tracks, dir: dir, speech: speech)
                 if !lines.isEmpty {
@@ -81,7 +84,7 @@ public enum Finalizer {
                     cues = Subtitles.cues(lines)
                 }
             } catch {
-                transcriptError = "\(error)"
+                transcriptError = brief(error)
             }
         }
         if total > 0 {
@@ -96,7 +99,7 @@ public enum Finalizer {
             try ChapterWriter.write(chapters, title: manifest.name, into: mix.url)
             let video = slideshow(manifest, dir: dir, chapters: chapters, subtitles: cues)
             slidesError = video.slides
-            transcriptError = transcriptError ?? video.subtitles
+            subtitlesError = video.subtitles
         }
         unreadable += cafs.filter(\.damaged).map(\.url.lastPathComponent)
         var gaps: [GapRecord] = []
@@ -112,7 +115,7 @@ public enum Finalizer {
         let report = FinalizeReport(
             totalFrames: total, gaps: gaps, driftMillis: drift, resampled: resampled, slidesError: slidesError,
             unreadable: unreadable.isEmpty ? nil : unreadable,
-            transcriptError: transcriptError)
+            transcriptError: transcriptError, subtitlesError: subtitlesError)
         manifest.finalize = report
         try manifest.save(to: dir)
         for name in rendered where !unreadable.contains(name) {
@@ -140,13 +143,25 @@ public enum Finalizer {
                 return nil
             } catch {
                 try? FileManager.default.removeItem(at: out)
-                return "\(error)"
+                return brief(error)
             }
         }
         guard let failure = attempt(subtitles) else { return (nil, nil) }
         guard !subtitles.isEmpty else { return (failure, nil) }
         let retry = attempt([])
-        return retry == nil ? (nil, "subtitles dropped: \(failure)") : (retry, nil)
+        return retry == nil ? (nil, failure) : (retry, nil)
+    }
+
+    static func brief(_ error: any Error) -> String {
+        let text: String
+        if let l = error as? LocalizedError, let d = l.errorDescription {
+            text = d
+        } else if type(of: error) is NSError.Type {
+            text = error.localizedDescription
+        } else {
+            text = "\(error)"
+        }
+        return String(text.prefix(200))
     }
 
     private static func transcribe(_ tracks: [Track], dir: URL, speech: SpeechToText) throws -> [TranscriptLine] {

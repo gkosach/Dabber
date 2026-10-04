@@ -874,8 +874,20 @@ extension FinalizerTests {
             SubtitleCue(startMillis: 1_000, endMillis: 1_500, text: "Я: Два"),
         ])
         #expect(result.slides == nil)
-        #expect(result.subtitles?.hasPrefix("subtitles dropped: ") == true)
+        #expect(result.subtitles != nil)
         #expect(FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.videoFile).path))
         #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).isEmpty)
+    }
+
+    @Test func finalizerPutsSubtitlesIntoTheSlidesVideo() async throws {
+        let dir = try makeSession()
+        let frame = try slide(dir, atSeconds: 0, screen())
+        var manifest = try SessionManifest.load(from: dir)
+        manifest.frames = [FrameRecord(offsetNanos: 0, file: frame.url.lastPathComponent)]
+        try manifest.save(to: dir)
+        let report = try Finalizer.run(dir, speech: { _ in [SpokenWord(startMillis: 500, endMillis: 1_500, text: "Привет")] })
+        #expect(report.slidesError == nil)
+        #expect(report.subtitlesError == nil)
+        #expect(try await AVURLAsset(url: dir.appendingPathComponent(Finalizer.videoFile)).loadTracks(withMediaType: .subtitle).count == 1)
     }
 }

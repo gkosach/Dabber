@@ -356,6 +356,7 @@ public final class RecorderModel {
         (report.slidesError.map { ["Slides video failed: \($0)"] } ?? [])
             + (report.unreadable.map { ["Could not read: \($0.joined(separator: ", "))"] } ?? [])
             + (report.transcriptError.map { ["Transcript failed: \($0)"] } ?? [])
+            + (report.subtitlesError.map { ["Subtitles left out of the video: \($0)"] } ?? [])
     }
 
     public func recoveryFailed(_ dir: URL, _ error: any Error) {

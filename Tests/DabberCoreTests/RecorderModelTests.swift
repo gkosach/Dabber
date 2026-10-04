@@ -1371,3 +1371,8 @@ private func absentAirPodsModel(_ e: FakeEngine) async -> RecorderModel {
     let report = FinalizeReport(totalFrames: 1, gaps: [], driftMillis: [:], resampled: [], transcriptError: "no model")
     #expect(RecorderModel.problems(report) == ["Transcript failed: no model"])
 }
+
+@MainActor @Test func aSubtitlesFailureIsAProblem() {
+    let report = FinalizeReport(totalFrames: 1, gaps: [], driftMillis: [:], resampled: [], subtitlesError: "-16364")
+    #expect(RecorderModel.problems(report) == ["Subtitles left out of the video: -16364"])
+}
