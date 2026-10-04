@@ -5,6 +5,9 @@ public enum Finalizer {
     public static let chunkFrames = 48_000
     public static let mixFile = "mix.m4a"
     public static let videoFile = "mix.mp4"
+    /// Lives in the session folder while speech runs. If it is still there on the next run, transcription crashed the
+    /// app, so that run skips it rather than crash again on every launch.
+    static let transcribingMarker = "transcribing"
 
     private struct Track {
         let base: String
@@ -18,6 +21,9 @@ public enum Finalizer {
     @discardableResult
     public static func run(_ dir: URL, speech: SpeechToText? = nil) throws -> FinalizeReport {
         var manifest = try SessionManifest.load(from: dir)
+        let marker = dir.appendingPathComponent(transcribingMarker)
+        let crashed = FileManager.default.fileExists(atPath: marker.path)
+        if crashed { try? FileManager.default.removeItem(at: marker) }
         var tracks: [Track] = []
         var rendered: [String] = []
         var unreadable: [String] = []
@@ -74,17 +80,23 @@ public enum Finalizer {
         if total >= Timeline.rate, let speech {
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.textFile))
             try? FileManager.default.removeItem(at: dir.appendingPathComponent(Transcript.srtFile))
-            do {
-                let lines = try transcribe(tracks, dir: dir, speech: speech)
-                if !lines.isEmpty {
-                    try Transcript.text(lines, marks: manifest.marks)
-                        .write(to: dir.appendingPathComponent(Transcript.textFile), atomically: true, encoding: .utf8)
-                    try Transcript.srt(lines)
-                        .write(to: dir.appendingPathComponent(Transcript.srtFile), atomically: true, encoding: .utf8)
-                    cues = Subtitles.cues(lines)
+            if crashed {
+                transcriptError = "skipped: the previous attempt did not finish"
+            } else {
+                do {
+                    try Data().write(to: marker)
+                    defer { try? FileManager.default.removeItem(at: marker) }
+                    let lines = try transcribe(tracks, dir: dir, speech: speech)
+                    if !lines.isEmpty {
+                        try Transcript.text(lines, marks: manifest.marks)
+                            .write(to: dir.appendingPathComponent(Transcript.textFile), atomically: true, encoding: .utf8)
+                        try Transcript.srt(lines)
+                            .write(to: dir.appendingPathComponent(Transcript.srtFile), atomically: true, encoding: .utf8)
+                        cues = Subtitles.cues(lines)
+                    }
+                } catch {
+                    transcriptError = brief(error)
                 }
-            } catch {
-                transcriptError = brief(error)
             }
         }
         if total > 0 {

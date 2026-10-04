@@ -853,6 +853,41 @@ extension FinalizerTests {
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Transcript.textFile).path))
     }
 
+    @Test func aTranscriptionThatNeverFinishedIsSkippedOnTheNextRun() throws {
+        let dir = try makeSession()
+        let marker = dir.appendingPathComponent(Finalizer.transcribingMarker)
+        try Data().write(to: marker)
+        let asked = Asked()
+        let report = try Finalizer.run(dir, speech: { url in
+            asked.names.append(url.lastPathComponent)
+            return []
+        })
+        #expect(asked.names.isEmpty)
+        #expect(report.transcriptError == "skipped: the previous attempt did not finish")
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+        let quiet = try makeSession()
+        try Data().write(to: quiet.appendingPathComponent(Finalizer.transcribingMarker))
+        #expect(try Finalizer.run(quiet).transcriptError == nil)
+        #expect(!FileManager.default.fileExists(atPath: quiet.appendingPathComponent(Finalizer.transcribingMarker).path))
+    }
+
+    @Test func theTranscribingMarkerIsGoneAfterSuccessAndFailure() throws {
+        struct Boom: Error {}
+        let outcomes: [SpeechToText] = [{ _ in [] }, { _ in throw Boom() }]
+        for speech in outcomes {
+            let dir = try makeSession()
+            let seen = Asked()
+            try Finalizer.run(dir, speech: { url in
+                if FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appendingPathComponent(Finalizer.transcribingMarker).path) {
+                    seen.names.append(url.lastPathComponent)
+                }
+                return try speech(url)
+            })
+            #expect(!seen.names.isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(Finalizer.transcribingMarker).path))
+        }
+    }
+
     @Test func withoutSpeechNothingIsTranscribed() throws {
         let dir = try makeSession()
         let report = try Finalizer.run(dir)
