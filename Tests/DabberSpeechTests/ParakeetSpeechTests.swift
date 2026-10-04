@@ -92,5 +92,21 @@ struct ParakeetSpeechTests {
         #expect(ParakeetSpeech.isNetwork(NSError(domain: "FluidAudio", code: 1, userInfo: [NSUnderlyingErrorKey: offline])))
         #expect(!ParakeetSpeech.isNetwork(NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError)))
         #expect(!ParakeetSpeech.isNetwork(ParakeetSpeech.SpeechError.notReady(nil)))
+        // FluidAudio's own download errors count unless the model file is missing.
+        let http = { (code: Int) in DownloadError.downloadFailed(path: "encoder", underlying: NSError(domain: "HTTP", code: code)) }
+        for transient: DownloadError in [
+            .stalled(path: "encoder", window: 30), .rateLimited(statusCode: 429, message: ""), http(503), http(429),
+            .downloadFailed(path: "encoder", underlying: URLError(.networkConnectionLost)),
+            .htmlErrorResponse(path: "tree", snippet: "<html>"), .invalidArtifact(path: "encoder", reason: "short"),
+            .invalidResponse,
+        ] {
+            #expect(ParakeetSpeech.isNetwork(transient), "\(transient)")
+        }
+        for permanent: DownloadError in [
+            .modelNotFound(path: "encoder"), .modelMissing(repo: "parakeet", missing: ["encoder"]),
+            .networkDisabled(operation: "download"), http(404), http(403),
+        ] {
+            #expect(!ParakeetSpeech.isNetwork(permanent), "\(permanent)")
+        }
     }
 }

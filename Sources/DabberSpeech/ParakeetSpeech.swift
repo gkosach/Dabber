@@ -100,9 +100,22 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
     }
 
-    /// Being offline is transient, so it does not use up the retries.
+    /// Being offline is transient, so it does not use up the retries. FluidAudio reports download problems as its
+    /// own DownloadError (a stalled transfer, a rate limit, a server error). They count as network failures, except
+    /// a model file that is missing on the server (HTTP 4xx other than 429) or in the cache.
     static func isNetwork(_ error: Error) -> Bool {
-        error is URLError || (error as NSError).domain == NSURLErrorDomain
+        if let download = error as? DownloadError {
+            switch download {
+            case .modelNotFound, .modelMissing, .networkDisabled:
+                return false
+            case .downloadFailed(_, let underlying):
+                let http = underlying as NSError
+                return http.domain == "HTTP" ? http.code == 429 || http.code >= 500 : isNetwork(underlying)
+            case .invalidResponse, .rateLimited, .htmlErrorResponse, .invalidArtifact, .stalled:
+                return true
+            }
+        }
+        return error is URLError || (error as NSError).domain == NSURLErrorDomain
             || ((error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError)?.domain == NSURLErrorDomain
     }
 
