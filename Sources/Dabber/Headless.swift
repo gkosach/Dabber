@@ -275,7 +275,8 @@ enum Headless {
                 let bytes = frames.compactMap { try? FileManager.default.attributesOfItem(atPath: stopped.appendingPathComponent($0.file).path)[.size] as? Int }
                 log.line("FRAMES \(frames.count) bytes=\(bytes.reduce(0, +))")
             }
-            try? ParakeetSpeech.shared.prepareNow()  // offline: the recording still goes out, without a transcript
+            // offline: the recording still goes out, without a transcript
+            do { try ParakeetSpeech.shared.prepareNow() } catch { log.line("SPEECH \(error.localizedDescription)") }
             let report = try Finalizer.run(stopped, speech: ParakeetSpeech.shared.transcribe)
             log.line("FINALIZED total=\(report.totalFrames) gaps=\(report.gaps.count) resampled=\(report.resampled.count)"
                 + (report.slidesError.map { " slidesError=\($0)" } ?? "")

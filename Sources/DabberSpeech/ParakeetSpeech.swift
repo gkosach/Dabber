@@ -28,11 +28,14 @@ public final class ParakeetSpeech: @unchecked Sendable {
     private var manager: AsrManager?
     private var loading = false
     private var loadError: String?
+    private var failures = 0
+    private static let maxFailures = 3
 
-    /// Starts the download and load in the background. Calling it again is free; after a failure it retries.
+    /// Starts the download and load in the background. Calling it again is free; after a failure it retries,
+    /// but gives up after three failures in one app run so a broken model is not downloaded again on every finalize.
     public func prepare() {
         let start = lock.withLock {
-            guard manager == nil, !loading else { return false }
+            guard manager == nil, !loading, failures < Self.maxFailures else { return false }
             loading = true
             loadError = nil
             return true
@@ -43,7 +46,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
                 let asr = try await Self.makeManager()
                 self.lock.withLock { self.manager = asr; self.loadError = nil; self.loading = false }
             } catch {
-                self.lock.withLock { self.loadError = error.localizedDescription; self.loading = false }
+                self.lock.withLock { self.loadError = error.localizedDescription; self.failures += 1; self.loading = false }
             }
         }
     }
@@ -51,8 +54,28 @@ public final class ParakeetSpeech: @unchecked Sendable {
     /// Blocks until the model is loaded. For the headless mode only.
     public func prepareNow() throws {
         if lock.withLock({ manager }) != nil { return }
-        let asr = try blocking { try await Self.makeManager() }
-        lock.withLock { manager = asr }
+        do {
+            let asr = try blocking { try await Self.makeManager() }
+            lock.withLock { manager = asr; loadError = nil }
+        } catch {
+            lock.withLock { loadError = error.localizedDescription; failures += 1 }
+            throw error
+        }
+    }
+
+    /// For launch recovery: a session recovered before the model is loaded would lose its transcript. Returns at once
+    /// if the model is loaded or is not on disk (waiting would mean a download); otherwise starts the load and waits
+    /// for it, at most `seconds`.
+    public func waitIfCached(seconds: Double) async {
+        if lock.withLock({ manager }) != nil { return }
+        guard AsrModels.modelsExist(at: AsrModels.defaultCacheDirectory(for: .v3), version: .v3) else { return }
+        prepare()
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            let (ready, busy) = lock.withLock { (manager != nil, loading) }
+            if ready || !busy { return }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
     }
 
     public func transcribe(_ url: URL) throws -> [SpokenWord] {
