@@ -21,7 +21,7 @@ enum SubtitleTrack {
         return (input, { samples.isEmpty ? nil : samples.removeFirst() })
     }
 
-    /// Contiguous samples from 0 to the end of the audio: cues plus empty gaps, none shorter than Subtitles.minMillis.
+    /// Contiguous samples from 0: cues plus empty gaps, none shorter than Subtitles.minMillis. The last one may end up to minMillis before the audio does.
     static func spans(_ cues: [SubtitleCue], endMillis: Int) -> [(start: Int, end: Int, text: String)] {
         var spans: [(start: Int, end: Int, text: String)] = []
         // A cue starting in the last minMillis of the audio would be cut below minMillis; it is dropped.
@@ -32,7 +32,7 @@ enum SubtitleTrack {
             } else if !spans.isEmpty {
                 spans[spans.count - 1].end = cue.startMillis
             }
-            spans.append((spans.last?.end ?? cue.startMillis, min(cue.endMillis, endMillis), cue.text))
+            spans.append((spans.last?.end ?? 0, min(cue.endMillis, endMillis), cue.text))
         }
         if let t = spans.last?.end, endMillis - t >= Subtitles.minMillis { spans.append((t, endMillis, "")) }
         return spans

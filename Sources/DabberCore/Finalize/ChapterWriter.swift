@@ -9,7 +9,7 @@ public enum ChapterError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .noAudio(let file): return "\(file): no audio to add chapters to"
-        case .format(let status): return "chapter format: \(status)"
+        case .format(let status): return "tx3g format: \(status)"
         case .write(let file, let why): return "\(file): writing chapters failed: \(why)"
         }
     }

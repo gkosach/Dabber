@@ -11,7 +11,7 @@ public struct SubtitleCue: Equatable, Sendable {
 }
 
 public enum Subtitles {
-    /// AVAssetWriter fails the whole mp4 (-16364) on near-zero subtitle samples; nothing shorter than this is written.
+    /// Shortest cue anyone can read. AVAssetWriter also fails the whole mp4 (-16364) on a zero-length subtitle sample, so nothing shorter is ever written.
     public static let minMillis = 300
 
     /// Cues never overlap, start in increasing order and last at least minMillis. A line shorter than minMillis that overlaps another line is folded away here; the txt and srt keep it.
