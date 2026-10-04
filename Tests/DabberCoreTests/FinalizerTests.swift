@@ -703,6 +703,68 @@ extension FinalizerTests {
         }
         #expect(!FileManager.default.fileExists(atPath: out.path))
     }
+
+    private func subtitleSamples(_ url: URL) async throws -> [String] {
+        let asset = AVURLAsset(url: url)
+        let track = try #require(try await asset.loadTracks(withMediaType: .subtitle).first)
+        let reader = try AVAssetReader(asset: asset)
+        let output = AVAssetReaderTrackOutput(track: track, outputSettings: nil)
+        reader.add(output)
+        reader.startReading()
+        var out: [String] = []
+        while let sample = output.copyNextSampleBuffer() {
+            guard sample.numSamples > 0, let buffer = sample.dataBuffer else { continue }  // the reader also emits empty marker buffers
+            let data = try buffer.dataBytes()
+            let text = String(decoding: data.dropFirst(2), as: UTF8.self)
+            out.append(String(format: "%.3f+%.3f ", sample.presentationTimeStamp.seconds, sample.duration.seconds) + text)
+        }
+        return out
+    }
+
+    @Test func slideshowCarriesRussianSubtitlesThatAreOffByDefault() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let audio = dir.appendingPathComponent("mix.m4a")
+        let writer = try AACWriter(url: audio, channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        let slides = [try slide(dir, atSeconds: 0, screen())]
+        let out = dir.appendingPathComponent("mix.mp4")
+        try SlideshowWriter.write(
+            audio: audio, slides: slides, chapters: [Chapter(startMillis: 0, title: "Start"), Chapter(startMillis: 1_500, title: "Mark 1")],
+            subtitles: [SubtitleCue(startMillis: 500, endMillis: 1_000, text: "Я: Привет"),
+                        SubtitleCue(startMillis: 1_100, endMillis: 2_000, text: "Собеседники: Да")],
+            title: nil, to: out)
+        let asset = AVURLAsset(url: out)
+        let group = try #require(try await asset.loadMediaSelectionGroup(for: .legible))
+        #expect(group.options.contains { $0.extendedLanguageTag == "ru" })
+        let track = try #require(try await asset.loadTracks(withMediaType: .subtitle).first)
+        #expect(try await track.load(.isEnabled) == false)
+        #expect(try await subtitleSamples(out) == [
+            "0.000+0.500 ", "0.500+0.600 Я: Привет", "1.100+0.900 Собеседники: Да", "2.000+1.000 ",
+        ])
+        #expect(try await chapterList(out) == ["0.000 Start", "1.500 Mark 1"])
+    }
+
+    @Test func aCueInTheLastMomentOfTheAudioIsDropped() async throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("sl-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let audio = dir.appendingPathComponent("mix.m4a")
+        let writer = try AACWriter(url: audio, channels: 2)
+        try writer.write(sine(frames: 144_000, channels: 2))
+        try writer.closeAndVerify()
+        let out = dir.appendingPathComponent("mix.mp4")
+        try SlideshowWriter.write(
+            audio: audio, slides: [try slide(dir, atSeconds: 0, screen())], chapters: [],
+            subtitles: [SubtitleCue(startMillis: 1_000, endMillis: 2_000, text: "Я: Раз"),
+                        SubtitleCue(startMillis: 2_950, endMillis: 3_250, text: "Я: Да")],
+            title: nil, to: out)
+        #expect(try await subtitleSamples(out) == ["0.000+1.000 ", "1.000+1.000 Я: Раз", "2.000+1.000 "])
+        try SlideshowWriter.write(
+            audio: audio, slides: [try slide(dir, atSeconds: 0, screen())], chapters: [],
+            subtitles: [SubtitleCue(startMillis: 2_950, endMillis: 3_250, text: "Я: Да")], title: nil, to: out)
+        #expect(try await AVURLAsset(url: out).loadTracks(withMediaType: .subtitle).isEmpty)
+    }
 }
 
 extension FinalizerTests {

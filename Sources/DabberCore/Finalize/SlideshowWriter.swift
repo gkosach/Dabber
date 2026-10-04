@@ -28,7 +28,9 @@ public struct Slide: Equatable, Sendable {
 public enum SlideshowWriter {
     static let quality = 0.65
 
-    public static func write(audio: URL, slides: [Slide], chapters: [Chapter], title: String?, to out: URL) throws {
+    public static func write(
+        audio: URL, slides: [Slide], chapters: [Chapter], subtitles: [SubtitleCue] = [], title: String?, to out: URL
+    ) throws {
         let frames = try AVAudioFile(forReading: audio).length
         let end = CMTime(value: frames, timescale: CMTimeScale(Timeline.rate))
         let shown = times(slides, endNanos: UInt64(frames) * 1_000_000_000 / UInt64(Timeline.rate))
@@ -49,6 +51,7 @@ public enum SlideshowWriter {
         let sound = AVAssetWriterInput(mediaType: .audio, outputSettings: nil, sourceFormatHint: source.format)
         writer.add(sound)
         let text = try ChapterWriter.chapterLane(chapters, end: end, writer: writer, linkedFrom: [video, sound])
+        let captions = try SubtitleTrack.lane(subtitles, end: end, writer: writer)
         var index = 0
         let pictures: WriterFeed.Lane = (video, {
             guard index < shown.count else { return nil }
@@ -59,7 +62,7 @@ public enum SlideshowWriter {
         })
         guard writer.startWriting() else { throw SlideshowError.write("\(writer.error.map { "\($0)" } ?? "start")") }
         writer.startSession(atSourceTime: .zero)
-        try WriterFeed([pictures, source.lane(sound)] + (text.map { [$0] } ?? [])).run(writer)
+        try WriterFeed([pictures, source.lane(sound)] + [text, captions].compactMap { $0 }).run(writer)
         writer.endSession(atSourceTime: end)
         let done = DispatchSemaphore(value: 0)
         writer.finishWriting { done.signal() }

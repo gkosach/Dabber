@@ -74,7 +74,7 @@ public enum ChapterWriter {
         return (input, { samples.isEmpty ? nil : samples.removeFirst() })
     }
 
-    private static func sample(_ title: String, start: CMTime, duration: CMTime, format: CMFormatDescription) throws -> CMSampleBuffer {
+    static func sample(_ title: String, start: CMTime, duration: CMTime, format: CMFormatDescription) throws -> CMSampleBuffer {
         let bytes = Array(title.utf8)
         let data = [UInt8(bytes.count >> 8 & 0xff), UInt8(bytes.count & 0xff)] + bytes
         var block: CMBlockBuffer?
@@ -96,7 +96,7 @@ public enum ChapterWriter {
         return sample
     }
 
-    private static func textFormat() throws -> CMFormatDescription {
+    static func textFormat(mediaType: CMMediaType = kCMMediaType_Text, subType: FourCharCode = kCMTextFormatType_3GText) throws -> CMFormatDescription {
         let white: [CFString: Any] = [
             kCMTextFormatDescriptionColor_Red: 255, kCMTextFormatDescriptionColor_Green: 255,
             kCMTextFormatDescriptionColor_Blue: 255, kCMTextFormatDescriptionColor_Alpha: 255,
@@ -123,7 +123,7 @@ public enum ChapterWriter {
         ]
         var format: CMFormatDescription?
         let status = CMFormatDescriptionCreate(
-            allocator: nil, mediaType: kCMMediaType_Text, mediaSubType: kCMTextFormatType_3GText,
+            allocator: nil, mediaType: mediaType, mediaSubType: subType,
             extensions: extensions as CFDictionary, formatDescriptionOut: &format)
         guard status == noErr, let format else { throw ChapterError.format(status) }
         return format
