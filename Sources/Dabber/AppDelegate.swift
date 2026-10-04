@@ -63,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         ParakeetSpeech.shared.prepare()
         let pending = Finalizer.sessionFolders(root: work)
-        Task.detached(priority: .utility) {
+        Self.model.finishBeforeQuit(Task.detached(priority: .utility) {
             ParakeetSpeech.removeStaleTempFiles()
             if pending.contains(where: Finalizer.needsRecovery) { await ParakeetSpeech.shared.waitIfCached(seconds: 60) }
             let failure = Delivery.recover(
@@ -71,7 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 onError: { dir, error in Task { @MainActor in Self.model.recoveryFailed(dir, error) } },
                 onReport: { dir, report in Task { @MainActor in Self.model.recovered(dir, report) } })
             await MainActor.run { Self.model.deliveryDone(failure: failure) }
-        }
+        })
         Task { @MainActor in
             Self.model.refreshDevices()
             Self.feed.refresh()

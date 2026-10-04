@@ -374,6 +374,20 @@ private func model(_ engine: FakeEngine, enabled: Set<String> = ["computer"], fi
     #expect(m.finishing == nil)
 }
 
+@MainActor @Test func quitWaitsForWorkHandedToIt() async {
+    let m = model(FakeEngine())
+    let (gate, open) = AsyncStream<Void>.makeStream()
+    nonisolated(unsafe) var returned = false
+    m.finishBeforeQuit(Task.detached {
+        for await _ in gate {}
+        returned = true
+    })
+    let quit = Task { await m.prepareToQuit(); return returned }
+    try? await Task.sleep(for: .milliseconds(50))
+    open.finish()
+    #expect(await quit.value)
+}
+
 @MainActor @Test func quitRightAfterAnUnnoticedSelfStopFinalizesThatSession() async {
     let e = FakeEngine()
     nonisolated(unsafe) var finalized: [URL] = []

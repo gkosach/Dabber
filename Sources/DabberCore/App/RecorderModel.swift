@@ -113,6 +113,7 @@ public final class RecorderModel {
     private var finalizeTask: Task<Void, Never>?
     private var pending: [URL] = []
     private var stopTask: Task<Void, Never>?
+    private var beforeQuit: [Task<Void, Never>] = []
     private var quitting = false
     private var stopErrorSeen = false
     private var notices: [String] = []
@@ -328,6 +329,13 @@ public final class RecorderModel {
         while starting { try? await Task.sleep(for: .milliseconds(20)) }
         if isRecording || stopTask != nil { await stopAndFinalize() }
         await finishPending()
+        for task in beforeQuit { await task.value }
+    }
+
+    /// Work started outside the model that quitting must wait for, such as launch recovery: cut short, it would
+    /// leave a recording half finished.
+    public func finishBeforeQuit(_ task: Task<Void, Never>) {
+        beforeQuit.append(task)
     }
 
     public func finishPending() async {
