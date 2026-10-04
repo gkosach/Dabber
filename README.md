@@ -121,7 +121,8 @@ it again.
    one finished last in Finder.
 
 If you quit Dabber during a recording or while recordings are still finishing, it finishes all of them first
-("Finalizing before quit…").
+("Finalizing before quit…"). Finishing includes the transcript: once the speech model is loaded, it takes about
+15 seconds per hour of audio for each track.
 
 Each recording is a folder named `YYYY-MM-DD HH-MM <name>` (only the date and time if there is no name). If a folder
 with that name already exists, a number is added. Inside:
@@ -135,6 +136,8 @@ with that name already exists, a number is added. Inside:
                                      only if the backup microphone was used (mono)
   2026-09-24 14-00 Weekly sync.mp4   only with Record slides: the mix with the screen as slides
   marks.txt                          only if you made marks
+  transcript.txt                     the text with times, speakers and marks, if transcription worked
+  transcript.srt                     the same text as subtitles for any player
   session.json                       technical details: sources, gaps, restarts
 ```
 
@@ -217,8 +220,9 @@ The model (about 470 MB) is downloaded and compiled in the background when Dabbe
 about 2-5 minutes and needs the internet. The model is stored in
 `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`. A recording that finishes before the
 model is ready is delivered without a transcript, and the menu says "Transcript failed: the speech model is not
-ready yet". A failed download is retried on the next recording. Recordings shorter than one second are not
-transcribed.
+ready yet". If the model fails to load, the next recording also goes out without a transcript, and Dabber starts
+loading the model again in the background. After three failed loads, not counting network errors, Dabber stops trying
+until it is restarted. Recordings shorter than one second are not transcribed.
 
 For checks there is a headless command: `Dabber --transcribe <audio file>` prints the timed lines of one file.
 
@@ -307,15 +311,17 @@ Your recordings in the output folder are not touched.
   folder.
 - **"Finishing…" takes a long time.** After Stop Dabber encodes every track and the mix in the background, at low
   priority so that a new recording is not disturbed. This takes longer for long recordings and more sources, longer
-  again if the output folder is on another disk, and longer while other apps keep the processor busy. You can record
-  meanwhile; if you quit, Dabber waits for it. If Dabber was closed unexpectedly, unfinished recordings are finished
-  at the next launch.
+  again if the output folder is on another disk, and longer while other apps keep the processor busy. The transcript
+  adds about 15 seconds per hour of audio for each track once the speech model is loaded. You can record meanwhile; if
+  you quit, Dabber waits for it. If Dabber was closed unexpectedly, unfinished recordings are finished at the next
+  launch.
 
 ## For developers
 
-- `Sources/DabberCore`: engine, finalizer, models (tested). `Sources/Dabber`: the menu bar app and a headless mode
-  used for hardware checks. `Driver/`: the virtual microphone, a BlackHole fork (see `Driver/NOTICE`).
-  `scripts/`: build, install and test scripts.
+- `Sources/DabberCore`: engine, finalizer, models (tested). `Sources/Dabber`: the menu bar app and a headless mode used
+  for hardware checks. `Sources/DabberSpeech`: speech-to-text with the Parakeet model through FluidAudio, a separate
+  target so that `DabberCore` does not depend on FluidAudio. `Driver/`: the virtual microphone, a BlackHole fork (see
+  `Driver/NOTICE`). `scripts/`: build, install and test scripts.
 - Run tests with `scripts/test.sh`. With only the Command Line Tools installed, plain `swift test` cannot find the
   Swift Testing macro plugin; the script passes its path.
 - `scripts/build-app.sh` builds `build/Dabber.app` without installing it.

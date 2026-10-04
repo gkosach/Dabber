@@ -826,7 +826,7 @@ public final class ParakeetSpeech: @unchecked Sendable {
 
         public var errorDescription: String? {
             switch self {
-            case .notReady(nil): "the speech model is still downloading"
+            case .notReady(nil): "the speech model is not ready yet"
             case .notReady(let why?): "the speech model could not be loaded: \(why)"
             }
         }
@@ -945,7 +945,7 @@ Add `import DabberSpeech` to `Sources/Dabber/AppDelegate.swift`. In the `Recorde
         finalize: { try Delivery.finishAndDeliver($0, output: $1, speech: ParakeetSpeech.shared.transcribe) },
 ```
 
-and in the launch recovery pass `speech: ParakeetSpeech.shared.transcribe` to `Delivery.recover(...)` after `output: output`. In `applicationDidFinishLaunching`, before the recovery task starts, call `ParakeetSpeech.shared.prepare()`: the first launch downloads and compiles the model in the background (about two minutes); recordings finished before that are delivered without a transcript and the menu says `Transcript failed: the speech model is still downloading`.
+and in the launch recovery pass `speech: ParakeetSpeech.shared.transcribe` to `Delivery.recover(...)` after `output: output`. In `applicationDidFinishLaunching`, before the recovery task starts, call `ParakeetSpeech.shared.prepare()`: the first launch downloads and compiles the model in the background (about two minutes); recordings finished before that are delivered without a transcript and the menu says `Transcript failed: the speech model is not ready yet`.
 
 - [ ] **Step 2: Headless**
 
