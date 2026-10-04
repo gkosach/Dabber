@@ -5,9 +5,9 @@ import Foundation
 
 /// Parakeet TDT 0.6B v3 on the Neural Engine. No language hint: with one, English terms in Russian speech come out
 /// in Cyrillic. The model (about 470 MB, kept in FluidAudio's cache in Application Support) is downloaded and compiled
-/// in the background by `prepare()`. `transcribe` never downloads: it runs inside finalize, which holds the delivery
-/// lock and makes quitting wait, so until the model is ready it throws at once and the recording goes out without
-/// a transcript.
+/// in the background by `prepare()`. `transcribe` never downloads the model itself: it runs inside finalize, which
+/// holds the delivery lock and makes quitting wait. If the model is not loaded, it starts the background load and
+/// throws at once, and the recording goes out without a transcript.
 public final class ParakeetSpeech: @unchecked Sendable {
     public static let shared = ParakeetSpeech()
 
@@ -42,24 +42,31 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
         guard start else { return }
         Task.detached(priority: .utility) {
-            do {
-                let asr = try await Self.makeManager()
-                self.lock.withLock { self.manager = asr; self.loadError = nil; self.loading = false }
-            } catch {
-                self.lock.withLock { self.loadError = error.localizedDescription; if !Self.isNetwork(error) { self.failures += 1 }; self.loading = false }
-            }
+            let result: Result<AsrManager, any Error>
+            do { result = .success(try await Self.makeManager()) } catch { result = .failure(error) }
+            self.lock.withLock { self.record(result); self.loading = false }
         }
     }
 
-    /// Blocks until the model is loaded. For the headless mode only.
+    /// Blocks until the model is loaded. For the headless mode only: it ignores `loading` and the failure cap,
+    /// so it loads even while `prepare()` is loading or after three failures.
     public func prepareNow() throws {
         if lock.withLock({ manager }) != nil { return }
-        do {
-            let asr = try blocking { try await Self.makeManager() }
-            lock.withLock { manager = asr; loadError = nil }
-        } catch {
-            lock.withLock { loadError = error.localizedDescription; if !Self.isNetwork(error) { failures += 1 } }
-            throw error
+        let result = Result { try blocking { try await Self.makeManager() } }
+        lock.withLock { record(result) }
+        _ = try result.get()
+    }
+
+    /// Keeps the loaded model or the reason it failed. Only failures other than network ones use up a retry.
+    /// The caller holds the lock.
+    private func record(_ result: Result<AsrManager, any Error>) {
+        switch result {
+        case .success(let asr):
+            manager = asr
+            loadError = nil
+        case .failure(let error):
+            loadError = error.localizedDescription
+            if !Self.isNetwork(error) { failures += 1 }
         }
     }
 
@@ -136,8 +143,9 @@ public final class ParakeetSpeech: @unchecked Sendable {
         }
     }
 
-    /// FluidAudio reads only the left channel of a stereo file, so a multi-channel track is downmixed to a temporary
-    /// mono 16 kHz copy first. Returns nil for a mono file.
+    /// For a file over 30 s FluidAudio takes its disk-backed path, which converts to mono without a downmix and so
+    /// reads only the left channel. A multi-channel track is therefore downmixed to a temporary mono 16 kHz copy
+    /// first. Returns nil for a mono file.
     static func monoCopy(of url: URL) throws -> URL? {
         let input = try AVAudioFile(forReading: url)
         guard input.fileFormat.channelCount > 1 else { return nil }
@@ -178,9 +186,9 @@ public final class ParakeetSpeech: @unchecked Sendable {
     }
 }
 
-/// Finalizer is synchronous and runs on a background queue; this waits there for the async FluidAudio call.
-/// It blocks a thread of the shared pool while it waits; Delivery.lock lets only one transcription run at a time,
-/// the same trade-off ChapterWriter.write already makes with its semaphore.
+/// Finalizer is synchronous; this waits in it for the async FluidAudio call. It parks a cooperative-pool thread
+/// while another task does the work. That is safe because Delivery.lock lets one transcription run at a time,
+/// so at most one or two pool threads are parked.
 private func blocking<T: Sendable>(_ body: @escaping @Sendable () async throws -> T) throws -> T {
     let done = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: Result<T, any Error>?

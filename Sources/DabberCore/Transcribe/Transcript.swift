@@ -14,7 +14,7 @@ public struct SpokenWord: Equatable, Sendable {
     }
 }
 
-/// Turns one audio file into timed words. Blocking: Finalizer runs on a background queue.
+/// Turns one audio file into timed words. Blocking: Finalizer runs in a detached task, off the main thread.
 public typealias SpeechToText = @Sendable (URL) throws -> [SpokenWord]
 
 public struct TranscriptLine: Equatable, Sendable {
